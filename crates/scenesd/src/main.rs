@@ -4,6 +4,7 @@ use std::sync::Arc;
 use scenes_core::actions::CliRunner;
 use scenes_core::config::Config;
 use scenes_core::events::{self, HyprEvent};
+use scenes_core::events_log::SqliteLog;
 use scenes_core::signal::{Context, Signal};
 use scenes_core::signals::{SignalSource, SystemSignals};
 use scenes_core::state::{ManagerState, SceneManager};
@@ -136,12 +137,24 @@ async fn main() {
         std::process::exit(1);
     }
     let state_file = state_dir.join("state.json");
+    let log_events = config.settings.log_events;
     let manager = match SceneManager::new(config, CliRunner, &state_file) {
         Ok(manager) => manager,
         Err(err) => {
             eprintln!("scenesd: recovery failed: {err}");
             std::process::exit(1);
         }
+    };
+    let manager = if log_events {
+        match SqliteLog::open(&state_dir.join("events.db")) {
+            Ok(log) => manager.with_sink(Arc::new(log)),
+            Err(err) => {
+                eprintln!("scenesd: event log unavailable: {err}");
+                manager
+            }
+        }
+    } else {
+        manager
     };
     let shared: Shared = Arc::new(Mutex::new(manager));
     let ipc = ipc_path();

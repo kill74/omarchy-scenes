@@ -2,6 +2,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
+use scenes_core::events_log::SqliteLog;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -65,7 +66,7 @@ fn usage() {
            resume               Resume auto-switching\n\
            check                Validate scenes.toml without the daemon\n\
            signals              Print the current extended signals\n\
-           why | stats          Planned for Phase 4\n"
+           why / stats / suggest  Explain, measure and draft scenes from the event log\n"
     );
 }
 
@@ -116,8 +117,71 @@ fn main() {
         println!("focused cwd: {:?}", source.focused_cwd());
         return;
     }
-    if matches!(command.as_str(), "why" | "stats" | "suggest") {
-        println!("{command} is planned for Phase 4");
+    let events_db = || {
+        std::env::var_os("XDG_STATE_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|h| std::path::PathBuf::from(h).join(".local/state"))
+                    .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+            })
+            .join("omarchy-scenes/events.db")
+    };
+
+    if command == "why" {
+        match SqliteLog::open_readonly(&events_db()).and_then(|log| {
+            log.last_decision()
+                .map_err(|e| scenes_core::events_log::LogError::Db(e.to_string()))
+        }) {
+            Ok(Some((ts, scene, signals, detail))) => {
+                let when = std::process::Command::new("date")
+                    .args(["-d", &format!("@{ts}"), "+%F %T"])
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_else(|| ts.to_string());
+                println!("last decision: {when}");
+                println!("scene: {scene}");
+                println!("signals: {signals}");
+                println!("result: {detail}");
+            }
+            Ok(None) => println!("no decisions logged yet"),
+            Err(err) => {
+                eprintln!("scenes: {err}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if command == "stats" {
+        match SqliteLog::open_readonly(&events_db()) {
+            Ok(log) => match log.stats() {
+                Ok(rows) if rows.is_empty() => println!("no scene time logged yet"),
+                Ok(rows) => {
+                    for (scene, seconds) in rows {
+                        println!("{scene}: {}m {}s", seconds / 60, seconds % 60);
+                    }
+                }
+                Err(err) => {
+                    eprintln!("scenes: {err}");
+                    std::process::exit(1);
+                }
+            },
+            Err(err) => {
+                eprintln!("scenes: {err}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if command == "suggest" {
+        match SqliteLog::open_readonly(&events_db()).and_then(|log| log.suggest()) {
+            Ok(text) => print!("{text}"),
+            Err(err) => {
+                eprintln!("scenes: {err}");
+                std::process::exit(1);
+            }
+        }
         return;
     }
 

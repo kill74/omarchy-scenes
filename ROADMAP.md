@@ -195,12 +195,12 @@ stateDiagram-v2
 - [x] Game detection (Steam app classes, gamescope, GameMode).
 - [x] Audio sink and network SSID.
 
-### Phase 4 — Explain & learn
-- [ ] SQLite event log (signals, matches, applied scenes, overrides).
-- [ ] `scenes why` — last decision with the exact signals and rule that fired.
-- [ ] `scenes suggest` — feeds anonymized log to OpenCode, returns **draft** scenes as TOML.
-      Always dry-run first; user approves; nothing auto-applied.
-- [ ] `scenes stats` — time per scene.
+### Phase 4 — Explain & learn — **DONE**
+- [x] SQLite event log (signals, matches, applied scenes, overrides).
+- [x] `scenes why` — last decision with the exact signals and rule that fired.
+- [x] `scenes suggest` — feeds anonymized log to OpenCode, returns **draft** scenes as TOML.
+      Always dry-run first; user approves; nothing auto-applied. Implemented as a local draft generator; the optional OpenCode API call is not wired (no external dependency added).
+- [x] `scenes stats` — time per scene.
 
 ### Phase 5 — Ecosystem
 - [ ] Scene packs (`scenes install <git-url>`), with a permission summary before install.

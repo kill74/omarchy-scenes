@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -6,6 +7,7 @@ use thiserror::Error;
 
 use crate::actions::{ActionError, ActionRunner, Snapshot};
 use crate::config::Config;
+use crate::events_log::{EventRecord, EventSink};
 use crate::rules::best_match;
 use crate::signal::{Context, Signal};
 
@@ -51,6 +53,9 @@ pub struct SceneManager<R: ActionRunner> {
     snapshots: Vec<Snapshot>,
     paused_until: Option<u64>,
     state_path: PathBuf,
+    sink: Option<Arc<dyn EventSink>>,
+    entered_at: Option<u64>,
+    last_signals: String,
 }
 
 impl<R: ActionRunner> SceneManager<R> {
@@ -63,6 +68,9 @@ impl<R: ActionRunner> SceneManager<R> {
             snapshots: Vec::new(),
             paused_until: None,
             state_path: state_path.to_path_buf(),
+            sink: None,
+            entered_at: None,
+            last_signals: String::new(),
         };
         manager.recover()?;
         Ok(manager)
@@ -110,6 +118,23 @@ impl<R: ActionRunner> SceneManager<R> {
         Ok(())
     }
 
+    pub fn with_sink(mut self, sink: Arc<dyn EventSink>) -> Self {
+        self.sink = Some(sink);
+        self
+    }
+
+    fn log(&self, kind: &str, scene: &str, signals: &str, detail: &str) {
+        if let Some(sink) = &self.sink {
+            let _ = sink.record(&EventRecord {
+                kind: kind.to_string(),
+                scene: scene.to_string(),
+                signals: signals.to_string(),
+                detail: detail.to_string(),
+                ts: now_secs() as i64,
+            });
+        }
+    }
+
     pub fn state(&self) -> &ManagerState {
         &self.state
     }
@@ -131,12 +156,20 @@ impl<R: ActionRunner> SceneManager<R> {
             self.state = ManagerState::Idle;
         }
 
+        self.last_signals = ctx.to_signal_json();
+        let best = best_match(&self.config, ctx).map(|(name, _)| name.to_string());
+        self.log(
+            "decision",
+            best.as_deref().unwrap_or(""),
+            &self.last_signals,
+            "signal event",
+        );
+
         if matches!(signal, Signal::Manual) {
             return self.manual_override();
         }
 
         self.state = ManagerState::Evaluating;
-        let best = best_match(&self.config, ctx).map(|(name, _)| name.to_string());
 
         match best {
             None => {
@@ -175,7 +208,9 @@ impl<R: ActionRunner> SceneManager<R> {
             self.persist()?;
         }
         self.active = Some(name.to_string());
+        self.entered_at = Some(now_secs());
         self.state = ManagerState::Active(name.to_string());
+        self.log("enter", name, &self.last_signals.clone(), "applied");
         if self.config.settings.notify_on_enter {
             let _ = self.runner.notify(&format!("Entered scene {name}"));
         }
@@ -189,7 +224,16 @@ impl<R: ActionRunner> SceneManager<R> {
         }
         self.snapshots.clear();
         let leaving = self.active.take().unwrap_or_default();
+        let seconds = self
+            .entered_at
+            .map(|start| now_secs().saturating_sub(start))
+            .unwrap_or_default();
+        self.entered_at = None;
         self.state = ManagerState::Idle;
+        if !leaving.is_empty() {
+            self.log("stay", &leaving, "", &seconds.to_string());
+            self.log("leave", &leaving, "", "");
+        }
         if self.config.settings.notify_on_leave && !leaving.is_empty() {
             let _ = self.runner.notify(&format!("Left scene {leaving}"));
         }
@@ -256,6 +300,7 @@ mod tests {
     use crate::actions::MockRunner;
     use crate::config::{ActionSpec, Scene, When};
     use crate::events::HyprEvent;
+    use crate::events_log::MockSink;
     use std::collections::BTreeMap;
 
     fn test_config() -> Config {
@@ -303,8 +348,10 @@ mod tests {
         let path = temp_state("apply");
         let _ = std::fs::remove_file(&path);
         let mock = std::sync::Arc::new(MockRunner::default());
+        let sink = std::sync::Arc::new(MockSink::default());
         let mut manager = SceneManager::new(test_config(), TestRunner(mock.clone()), &path)
-            .unwrap_or_else(|e| panic!("{e}"));
+            .unwrap_or_else(|e| panic!("{e}"))
+            .with_sink(sink.clone());
         let mut ctx = Context {
             window_class: "code".into(),
             ..Default::default()

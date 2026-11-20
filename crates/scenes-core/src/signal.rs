@@ -70,6 +70,24 @@ impl Context {
         }
     }
 
+    pub fn to_signal_json(&self) -> String {
+        serde_json::json!({
+            "window_class": self.window_class,
+            "window_title": self.window_title,
+            "workspace": self.workspace,
+            "monitor_name": self.monitor_name,
+            "monitor_count": self.monitor_count,
+            "git_repo": self.git_repo,
+            "cwd": self.cwd,
+            "power": self.power,
+            "battery": self.battery,
+            "ssid": self.ssid,
+            "audio_sink": self.audio_sink,
+            "game_active": self.game_active,
+        })
+        .to_string()
+    }
+
     pub fn set_time(&mut self, hour: u32, minute: u32) {
         self.minute_of_day = hour.saturating_mul(60) + minute.min(59);
     }
