@@ -8,7 +8,7 @@ import qs.Ui
 // stays quiet when the daemon is stopped.
 BarWidget {
   id: root
-  moduleName: "scenes.status"
+  moduleName: "io.github.kill74.scenes"
 
   readonly property string statePath: (Quickshell.env("XDG_STATE_HOME")
     || (Quickshell.env("HOME") || "") + "/.local/state")

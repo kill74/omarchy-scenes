@@ -1,16 +1,23 @@
 # Omarchy marketplace packaging
 
-Phase 0 confirmed the **bar-widget plugin manifest** format used under
-`~/.config/omarchy/plugins/<id>/manifest.json` (`schemaVersion`, `id`, `kinds`,
-`entryPoints`, `barWidget`). It did **not** confirm a marketplace submission or
-distribution format for a systemd daemon package.
+This repository is now submission-shaped for [plugins.omarchy.org](https://plugins.omarchy.org):
 
-Therefore no marketplace submission manifest is included. The Omarchy-native
-parts that are confirmed are installed by `install.sh`:
+- root `manifest.json` with id `io.github.kill74.scenes`, kind `bar-widget`
+- entry point `assets/scenes.status/Status.qml`
+- root `README.md` with install and removal instructions
+- root `LICENSE` (MIT)
+- root `preview.png`
 
-- `scenes.status` bar widget plugin (manifest + QML)
-- Scenes entries in `~/.config/omarchy/extensions/omarchy-menu.jsonc`
-- theme-set and post-update hooks
+`omarchy plugin validate .` must pass before submitting.
 
-If the marketplace later accepts daemon packages, the AUR PKGBUILD in
-`../aur/PKGBUILD` is the closest packaging description to adapt.
+Suggested submission metadata:
+
+- Category: `Productivity`
+- Tags: `bar`, `hyprland`, `workspaces`
+
+The plugin widget depends on the separately installed `scenesd` daemon. The
+README documents that dependency, the optional signal tools and the fact that
+no sudo/pkexec is used. If submitting this whole repository rather than a
+dedicated plugin-only repo, expect the security baseline to report the
+`installer`, `service-management` and `remote-build` capabilities for review;
+they come from `install.sh`, the systemd unit and the Rust build.

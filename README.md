@@ -8,7 +8,32 @@ previous state when the context ends.
 > conservative: no external network calls, no shell injection, and scene packs
 > require an explicit `--confirm` after showing a permission summary.
 
-## Install
+## Marketplace plugin
+
+- **ID:** `io.github.kill74.scenes`
+- **Kind:** `bar-widget`
+- **Install:** `omarchy plugin add https://github.com/kill74/omarchy-scenes.git --enable`
+- **Remove:** `omarchy plugin remove io.github.kill74.scenes`
+- **Preview:** [`preview.png`](preview.png)
+- **License:** [MIT](LICENSE)
+
+The plugin is a small bar widget. The reactive behaviour lives in a separate
+user daemon that must be installed too:
+
+```bash
+git clone https://github.com/kill74/omarchy-scenes.git
+cd omarchy-scenes
+./install.sh          # builds scenesd/scenes, installs config, service and hooks
+./install.sh --uninstall [--purge-config]
+```
+
+No sudo or pkexec is required. External runtime dependencies: Hyprland 0.56+,
+`hyprctl`, `omarchy`, `bash`, `python3`, `sqlite3`, plus `socat` (manual-override
+hook), `pactl` (audio sink), `nmcli` (Wi-Fi SSID), `gamemoded` (game detection)
+and `upower` (power/battery). If the daemon is not installed the widget stays
+quiet rather than showing stale state.
+
+## Full install (daemon + CLI + config)
 
 ```bash
 git clone https://github.com/kill74/omarchy-scenes.git
@@ -69,6 +94,6 @@ More detail: [`docs/USAGE.md`](docs/USAGE.md),
 - Phase 5: packs, AUR PKGBUILD, CI and docs included.
   - The "suggest via OpenCode API" step is a local draft generator only; no
     external dependency or API call was added.
-  - Omarchy plugin-marketplace submission is not included: Phase 0 confirmed
-    the bar-widget plugin manifest, not the marketplace submission format.
+  - Marketplace-ready: root `manifest.json`, MIT `LICENSE`, `preview.png` and
+    this README with install/removal instructions and dependency documentation.
   - No demo GIF is committed.
