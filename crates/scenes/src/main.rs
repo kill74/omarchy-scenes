@@ -66,6 +66,7 @@ fn usage() {
            resume               Resume auto-switching\n\
            check                Validate scenes.toml without the daemon\n\
            signals              Print the current extended signals\n\
+           pack ...              Inspect/install scene packs (permission summary first)
            why / stats / suggest  Explain, measure and draft scenes from the event log\n"
     );
 }
@@ -117,6 +118,67 @@ fn main() {
         println!("focused cwd: {:?}", source.focused_cwd());
         return;
     }
+    if command == "pack" {
+        use scenes_core::packs;
+        let action = args.get(1).map(String::as_str).unwrap_or("");
+        match action {
+            "inspect" => {
+                let Some(path) = args.get(2) else {
+                    eprintln!("usage: scenes pack inspect <scene-pack.toml>");
+                    std::process::exit(2);
+                };
+                match packs::PackManifest::load(std::path::Path::new(path)) {
+                    Ok(manifest) => print!("{}", manifest.summary()),
+                    Err(err) => {
+                        eprintln!("scenes: {err}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            "install" => {
+                let Some(url) = args.get(2) else {
+                    eprintln!("usage: scenes pack install <git-url> [--confirm]");
+                    std::process::exit(2);
+                };
+                let confirm = args.iter().any(|a| a == "--confirm");
+                match packs::fetch(url) {
+                    Ok((dir, manifest)) => {
+                        println!("{}", manifest.summary());
+                        if !confirm {
+                            println!("Nothing installed. Re-run with --confirm after reviewing.");
+                        } else {
+                            let config_dir = std::env::var_os("XDG_CONFIG_HOME")
+                                .map(std::path::PathBuf::from)
+                                .unwrap_or_else(|| {
+                                    std::env::var_os("HOME")
+                                        .map(|h| std::path::PathBuf::from(h).join(".config"))
+                                        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                                })
+                                .join("omarchy/scenes");
+                            match packs::install_pack(&dir, &manifest, &config_dir, confirm) {
+                                Ok(target) => println!("Installed to {}", target.display()),
+                                Err(err) => {
+                                    eprintln!("scenes: {err}");
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                        let _ = std::fs::remove_dir_all(&dir);
+                    }
+                    Err(err) => {
+                        eprintln!("scenes: {err}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            _ => {
+                eprintln!("usage: scenes pack <inspect|install> ...");
+                std::process::exit(2);
+            }
+        }
+        return;
+    }
+
     let events_db = || {
         std::env::var_os("XDG_STATE_HOME")
             .map(std::path::PathBuf::from)

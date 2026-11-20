@@ -1,0 +1,29 @@
+# Maintainer: Guilherme Infante Sales <gnailpo895@gmail.com>
+pkgname=omarchy-scenes
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Context-aware desktop profiles for Omarchy"
+arch=('x86_64')
+url="https://github.com/kill74/omarchy-scenes"
+license=('MIT')
+depends=('hyprland' 'sqlite' 'bash')
+makedepends=('rust' 'cargo')
+optdepends=('socat: manual-override hook' 'pactl: audio sink signal' 'nmcli: Wi-Fi signal')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/kill74/omarchy-scenes/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  cargo build --release --locked
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/scenesd "$pkgdir/usr/bin/scenesd"
+  install -Dm755 target/release/scenes "$pkgdir/usr/bin/scenes"
+  install -Dm644 systemd/scenesd.service "$pkgdir/usr/lib/systemd/user/scenesd.service"
+  install -Dm644 config/scenes.toml "$pkgdir/usr/share/omarchy-scenes/scenes.toml"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 hooks/theme-set.d/50-scenes-manual "$pkgdir/usr/share/omarchy-scenes/hooks/theme-set.d/50-scenes-manual"
+  install -Dm644 hooks/post-update.d/50-scenes-validate "$pkgdir/usr/share/omarchy-scenes/hooks/post-update.d/50-scenes-validate"
+}

@@ -53,35 +53,35 @@ pub fn when_matches(when: &When, ctx: &Context) -> bool {
     if !when.audio_sink.is_empty() && !any_match(&when.audio_sink, &ctx.audio_sink) {
         return false;
     }
-    if let Some(min) = when.monitors_min {
-        if ctx.monitor_count < min {
-            return false;
-        }
+    if let Some(min) = when.monitors_min
+        && ctx.monitor_count < min
+    {
+        return false;
     }
-    if let Some(max) = when.monitors_max {
-        if ctx.monitor_count > max {
-            return false;
-        }
+    if let Some(max) = when.monitors_max
+        && ctx.monitor_count > max
+    {
+        return false;
     }
-    if let Some(wanted) = when.game {
-        if ctx.game_active != wanted {
-            return false;
-        }
+    if let Some(wanted) = when.game
+        && ctx.game_active != wanted
+    {
+        return false;
     }
-    if let Some(level) = when.battery_below {
-        if ctx.battery.map_or(true, |b| b >= level) {
-            return false;
-        }
+    if let Some(level) = when.battery_below
+        && ctx.battery.is_none_or(|b| b >= level)
+    {
+        return false;
     }
-    if let Some(power) = &when.power {
-        if !ctx.power.eq_ignore_ascii_case(power) {
-            return false;
-        }
+    if let Some(power) = &when.power
+        && !ctx.power.eq_ignore_ascii_case(power)
+    {
+        return false;
     }
-    if let Some(range) = &when.time_range {
-        if !time_range_matches(range, ctx.minute_of_day) {
-            return false;
-        }
+    if let Some(range) = &when.time_range
+        && !time_range_matches(range, ctx.minute_of_day)
+    {
+        return false;
     }
     true
 }

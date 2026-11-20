@@ -1,0 +1,18 @@
+[settings]
+debounce_ms = 400
+manual_override_pause = "30m"
+log_events = true
+signal_poll_ms = 5000
+notify_on_enter = false
+notify_on_leave = false
+
+[scene.focus]
+priority = 50
+description = "Deep work"
+
+  [[scene.focus.when]]
+  window_class = ["code", "kitty", "Alacritty"]
+
+  [[scene.focus.do]]
+  kind = "omarchy"
+  run = "theme set 'Tokyo Night'"

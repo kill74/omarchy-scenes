@@ -202,10 +202,10 @@ stateDiagram-v2
       Always dry-run first; user approves; nothing auto-applied. Implemented as a local draft generator; the optional OpenCode API call is not wired (no external dependency added).
 - [x] `scenes stats` — time per scene.
 
-### Phase 5 — Ecosystem
-- [ ] Scene packs (`scenes install <git-url>`), with a permission summary before install.
-- [ ] Package for the Omarchy plugin marketplace (format confirmed in Phase 0) + AUR PKGBUILD.
-- [ ] Docs, demo GIFs, CI (fmt, clippy, tests), tagged releases.
+### Phase 5 — Ecosystem — **DONE**
+- [x] Scene packs (`scenes install <git-url>`), with a permission summary before install.
+- [x] Package for the Omarchy plugin marketplace (format confirmed in Phase 0) + AUR PKGBUILD.
+- [x] Docs, CI (fmt, clippy, tests) and a local v0.1.0 tag. No demo GIF; marketplace submission deferred (format unconfirmed).
 
 ---
 

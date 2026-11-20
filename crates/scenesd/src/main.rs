@@ -102,21 +102,19 @@ fn context_snapshot(ctx: &mut Context) {
     if let Ok(out) = std::process::Command::new("date").args(["+%H %M"]).output() {
         let clock = String::from_utf8_lossy(&out.stdout).to_string();
         let parts: Vec<&str> = clock.split_whitespace().collect();
-        if let (Some(h), Some(m)) = (parts.first(), parts.get(1)) {
-            if let (Ok(hour), Ok(minute)) = (h.parse::<u32>(), m.parse::<u32>()) {
-                ctx.set_time(hour, minute);
-            }
+        if let (Some(h), Some(m)) = (parts.first(), parts.get(1))
+            && let (Ok(hour), Ok(minute)) = (h.parse::<u32>(), m.parse::<u32>())
+        {
+            ctx.set_time(hour, minute);
         }
     }
     if let Ok(out) = std::process::Command::new("hyprctl")
         .args(["-j", "monitors"])
         .output()
+        && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&out.stdout)
+        && let Some(list) = value.as_array()
     {
-        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-            if let Some(list) = value.as_array() {
-                ctx.monitor_count = list.len();
-            }
-        }
+        ctx.monitor_count = list.len();
     }
 }
 
@@ -290,25 +288,37 @@ async fn hypr_loop(shared: Shared, debounce_ms: u64, signal_poll_ms: u64) -> Res
                 _ = poll_ticker.tick() => {
                     let signals = SystemSignals;
                     let mut changes: Vec<Signal> = Vec::new();
-                    if let Some(count) = signals.monitor_count() {
-                        if count != ctx.monitor_count { changes.push(Signal::MonitorCount(count)); }
+                    if let Some(count) = signals.monitor_count()
+                        && count != ctx.monitor_count
+                    {
+                        changes.push(Signal::MonitorCount(count));
                     }
-                    if let Some(ssid) = signals.wifi_ssid() {
-                        if ssid != ctx.ssid { changes.push(Signal::Ssid(ssid)); }
+                    if let Some(ssid) = signals.wifi_ssid()
+                        && ssid != ctx.ssid
+                    {
+                        changes.push(Signal::Ssid(ssid));
                     }
-                    if let Some(sink) = signals.audio_sink() {
-                        if sink != ctx.audio_sink { changes.push(Signal::AudioSink(sink)); }
+                    if let Some(sink) = signals.audio_sink()
+                        && sink != ctx.audio_sink
+                    {
+                        changes.push(Signal::AudioSink(sink));
                     }
-                    if let Some(power) = signals.power() {
-                        if power != ctx.power { changes.push(Signal::Power(power)); }
+                    if let Some(power) = signals.power()
+                        && power != ctx.power
+                    {
+                        changes.push(Signal::Power(power));
                     }
-                    if let Some(level) = signals.battery() {
-                        if Some(level) != ctx.battery { changes.push(Signal::Battery(level)); }
+                    if let Some(level) = signals.battery()
+                        && Some(level) != ctx.battery
+                    {
+                        changes.push(Signal::Battery(level));
                     }
                     let game = signals.game_active();
                     if game != ctx.game_active { changes.push(Signal::Game(game)); }
-                    if let Some(cwd) = signals.focused_cwd() {
-                        if cwd != ctx.cwd { changes.push(Signal::Cwd(cwd)); }
+                    if let Some(cwd) = signals.focused_cwd()
+                        && cwd != ctx.cwd
+                    {
+                        changes.push(Signal::Cwd(cwd));
                     }
                     if !changes.is_empty() {
                         let mut manager = shared.lock().await;

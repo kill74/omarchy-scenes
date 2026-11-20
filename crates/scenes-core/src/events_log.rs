@@ -131,14 +131,14 @@ impl SqliteLog {
             let (scene, signals) = row.map_err(|e| LogError::Db(e.to_string()))?;
             let value: serde_json::Value =
                 serde_json::from_str(&signals).unwrap_or(serde_json::Value::Null);
-            if let Some(class) = value.get("window_class").and_then(|v| v.as_str()) {
-                if !class.is_empty() {
-                    *counts
-                        .entry(scene)
-                        .or_default()
-                        .entry(class.to_string())
-                        .or_insert(0) += 1;
-                }
+            if let Some(class) = value.get("window_class").and_then(|v| v.as_str())
+                && !class.is_empty()
+            {
+                *counts
+                    .entry(scene)
+                    .or_default()
+                    .entry(class.to_string())
+                    .or_insert(0) += 1;
             }
         }
         if counts.is_empty() {
@@ -149,7 +149,7 @@ impl SqliteLog {
         );
         for (scene, classes) in counts {
             let mut pairs: Vec<_> = classes.into_iter().collect();
-            pairs.sort_by(|a, b| b.1.cmp(&a.1));
+            pairs.sort_by_key(|a| std::cmp::Reverse(a.1));
             let top: Vec<String> = pairs
                 .into_iter()
                 .take(4)

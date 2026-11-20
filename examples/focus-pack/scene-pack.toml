@@ -1,0 +1,16 @@
+[pack]
+name = "Focus Pack"
+version = "1.0.0"
+description = "A small starter pack for deep work"
+
+[[permissions]]
+kind = "theme"
+value = "Tokyo Night"
+description = "changes the active Omarchy theme"
+
+[[permissions]]
+kind = "hypr"
+value = "animations:enabled"
+description = "toggles Hyprland animations"
+
+scenes_file = "scenes.toml"

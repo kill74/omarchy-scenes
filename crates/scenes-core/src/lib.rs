@@ -2,6 +2,7 @@ pub mod actions;
 pub mod config;
 pub mod events;
 pub mod events_log;
+pub mod packs;
 pub mod rules;
 pub mod signal;
 pub mod signals;
