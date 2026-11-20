@@ -1,6 +1,6 @@
 # Maintainer: Guilherme Infante Sales <gnailpo895@gmail.com>
 pkgname=omarchy-scenes
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="Context-aware desktop profiles for Omarchy"
 arch=('x86_64')

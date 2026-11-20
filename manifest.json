@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.kill74.scenes",
   "name": "Omarchy Scenes",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "Guilherme Infante Sales",
   "license": "MIT",
   "description": "A bar widget that shows the active context-aware scene, with a paused indicator and quick access to the Scenes menu.",

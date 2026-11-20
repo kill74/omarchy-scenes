@@ -29,6 +29,8 @@ pub enum PackError {
     RevisionMismatch { expected: String, actual: String },
     #[error("cannot read git revision: {0}")]
     Revision(String),
+    #[error("unsafe scenes file: {0}")]
+    UnsafeScenesFile(String),
 }
 
 #[derive(Debug, Clone)]
@@ -72,12 +74,49 @@ pub fn revision(dir: &Path) -> Result<String, PackError> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Resolve the scenes file to a regular file inside the checkout. A symlink or
+/// a path escaping the tree would not be covered by the reviewed git revision.
+fn safe_scenes_path(dir: &Path, manifest: &PackManifest) -> Result<std::path::PathBuf, PackError> {
+    let scenes_file = manifest.scenes_file();
+    let source = dir.join(&scenes_file);
+    let meta = std::fs::symlink_metadata(&source)
+        .map_err(|e| PackError::UnsafeScenesFile(e.to_string()))?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Err(PackError::UnsafeScenesFile(format!(
+            "{scenes_file} is not a regular tracked file"
+        )));
+    }
+    let root =
+        std::fs::canonicalize(dir).map_err(|e| PackError::UnsafeScenesFile(e.to_string()))?;
+    let resolved =
+        std::fs::canonicalize(&source).map_err(|e| PackError::UnsafeScenesFile(e.to_string()))?;
+    if !resolved.starts_with(&root) {
+        return Err(PackError::UnsafeScenesFile(format!(
+            "{scenes_file} resolves outside the checkout"
+        )));
+    }
+    if !revision(dir).unwrap_or_default().is_empty() {
+        let checkout = dir.to_string_lossy().to_string();
+        let tracked = Command::new("git")
+            .args(["-C", &checkout, "ls-files", "--error-unmatch", &scenes_file])
+            .output()
+            .map_err(|e| PackError::UnsafeScenesFile(e.to_string()))?;
+        if !tracked.status.success() {
+            return Err(PackError::UnsafeScenesFile(format!(
+                "{scenes_file} is not tracked by git"
+            )));
+        }
+    }
+    Ok(source)
+}
+
 /// Derive what the pack actually does from its scenes file, not from the
 /// author-declared `permissions` block.
 pub fn review(dir: &Path, manifest: &PackManifest) -> Result<PackReview, PackError> {
     let scenes_file = manifest.scenes_file();
-    let config = Config::load(&dir.join(&scenes_file))
-        .map_err(|e| PackError::Parse(format!("{scenes_file}: {e}")))?;
+    let source = safe_scenes_path(dir, manifest)?;
+    let config =
+        Config::load(&source).map_err(|e| PackError::Parse(format!("{scenes_file}: {e}")))?;
     let mut permissions: Vec<String> = Vec::new();
     for scene in config.scene.values() {
         for action in &scene.actions {
@@ -268,7 +307,7 @@ pub fn install_pack(
         }
     }
     let scenes_file = manifest.scenes_file();
-    let source = dir.join(&scenes_file);
+    let source = safe_scenes_path(dir, manifest)?;
     let size = std::fs::metadata(&source)
         .map(|m| m.len())
         .map_err(|e| PackError::Copy(e.to_string()))?;
@@ -377,6 +416,48 @@ mod tests {
                 .any(|p| p.contains("animations:enabled"))
         );
         let _ = std::fs::remove_file(scenes);
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn rejects_symlinked_scenes_file() {
+        use std::os::unix::fs::symlink;
+
+        let dir = std::env::temp_dir().join(format!("scenes-pack-symlink-{}", std::process::id()));
+        let outside =
+            std::env::temp_dir().join(format!("scenes-pack-outside-{}.toml", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(&outside, "[scene.x]\npriority = 1\n").unwrap_or_default();
+        let linked = dir.join("scenes.toml");
+        let _ = std::fs::remove_file(&linked);
+        symlink(&outside, &linked).unwrap_or_default();
+
+        let manifest = PackManifest {
+            pack: PackInfo {
+                name: "x".into(),
+                description: String::new(),
+                version: String::new(),
+                scenes_file: Some("scenes.toml".into()),
+            },
+            permissions: Vec::new(),
+            scenes_file: None,
+        };
+        assert!(matches!(
+            review(&dir, &manifest),
+            Err(PackError::UnsafeScenesFile(_))
+        ));
+        assert!(matches!(
+            install_pack(
+                &dir,
+                &manifest,
+                std::path::Path::new("/tmp/nope"),
+                true,
+                None
+            ),
+            Err(PackError::UnsafeScenesFile(_))
+        ));
+        let _ = std::fs::remove_file(linked);
+        let _ = std::fs::remove_file(outside);
         let _ = std::fs::remove_dir(dir);
     }
 

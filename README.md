@@ -55,7 +55,7 @@ SCENES_SKIP_BUILD=1 SCENES_BIN_DIR="$PWD/target/debug" SCENES_SKIP_SYSTEMD=1 ./i
 
 - **Releases:** https://github.com/kill74/omarchy-scenes/releases — each tag
   publishes `scenes` and `scenesd` binaries with generated notes.
-- **Container:** `ghcr.io/kill74/omarchy-scenes:0.1.1` (current) and `:latest`.
+- **Container:** `ghcr.io/kill74/omarchy-scenes:0.1.2` (current) and `:latest`.
 - **AUR:** [`packaging/aur/PKGBUILD`](packaging/aur/PKGBUILD) is included;
   publishing it to the AUR is a manual maintainer step.
 

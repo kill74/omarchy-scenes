@@ -6,6 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-20
+
+### Fixed
+
+- Scene packs reject symlinked or untracked `scenes.toml` files, so the reviewed
+  git revision always covers the exact content installed.
+
 ## [0.1.1] - 2026-11-20
 
 ### Fixed
