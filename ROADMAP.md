@@ -182,12 +182,12 @@ stateDiagram-v2
 **Done when:** focusing a configured window switches theme; unfocusing restores the previous one;
 `cargo test` passes using only the mock socket; no state leaks after `kill -9` (recovery on next start).
 
-### Phase 2 — Omarchy integration
-- [ ] Menu extension: "Scenes" entry → list, apply, pause (via `omarchy menu`).
-- [ ] Bar widget: current scene + paused indicator.
-- [ ] Notifications on scene enter/leave (configurable, quiet by default).
-- [ ] Survive `omarchy update` (post-update hook re-validates install and config).
-- [ ] Manual-override detection (user changes theme/toggle by hand → pause).
+### Phase 2 — Omarchy integration — **DONE**
+- [x] Menu extension: "Scenes" entry → list, apply, pause (via `omarchy menu`).
+- [x] Bar widget: current scene + paused indicator.
+- [x] Notifications on scene enter/leave (configurable, quiet by default).
+- [x] Survive `omarchy update` (post-update hook re-validates install and config).
+- [x] Manual-override detection (user changes theme/toggle by hand → pause).
 
 ### Phase 3 — More signals
 - [ ] Git repo / cwd of focused terminal (via `/proc` of the window PID).

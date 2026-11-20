@@ -231,6 +231,10 @@ async fn handle_request(request: Request, shared: Shared) -> Response {
             .resume()
             .map(|_| "resumed".to_string())
             .map_err(|e| e.to_string()),
+        "manual" => manager
+            .handle_signal(&Signal::Manual, &Context::default())
+            .map(|_| "manual override recorded".to_string())
+            .map_err(|e| e.to_string()),
         other => Err(format!("unknown method '{other}'")),
     };
     match result {

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# A theme changed outside Scenes: pause auto-switching so we do not fight the user.
+# Scenes' own theme changes carry SCENES_INTERNAL=1 and are ignored here.
+set -u
+[[ ${SCENES_INTERNAL:-} == 1 ]] && exit 0
+
+sock="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-scenes/scenes.sock"
+[[ -S $sock ]] || exit 0
+command -v socat >/dev/null 2>&1 || exit 0
+
+printf '{"method":"manual"}\n' | socat - "UNIX-CONNECT:$sock" >/dev/null 2>&1 || true

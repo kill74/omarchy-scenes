@@ -43,12 +43,15 @@ pub trait ActionRunner: Send + Sync {
     fn apply(&self, action: &ActionSpec) -> Result<Snapshot, ActionError>;
     fn revert(&self, snapshot: &Snapshot) -> Result<(), ActionError>;
     fn describe(&self, action: &ActionSpec) -> String;
+    fn notify(&self, _message: &str) -> Result<(), ActionError> {
+        Ok(())
+    }
 }
-
 
 fn run(program: &str, args: &[String]) -> Result<String, ActionError> {
     let output = Command::new(program)
         .args(args)
+        .env("SCENES_INTERNAL", "1")
         .output()
         .map_err(|source| ActionError::Command {
             program: program.to_string(),
@@ -219,6 +222,19 @@ impl ActionRunner for CliRunner {
             other => other.to_string(),
         }
     }
+
+    fn notify(&self, message: &str) -> Result<(), ActionError> {
+        run(
+            "omarchy",
+            &[
+                "notification".into(),
+                "send".into(),
+                "Scenes".into(),
+                message.into(),
+            ],
+        )?;
+        Ok(())
+    }
 }
 
 impl CliRunner {
@@ -279,6 +295,7 @@ fn hyprctl_value(key: &str) -> Result<String, ActionError> {
 pub struct MockRunner {
     pub applied: Mutex<Vec<String>>,
     pub reverted: Mutex<Vec<String>>,
+    pub notifications: Mutex<Vec<String>>,
 }
 
 impl ActionRunner for MockRunner {
@@ -300,6 +317,14 @@ impl ActionRunner for MockRunner {
 
     fn describe(&self, action: &ActionSpec) -> String {
         format!("mock {:?}", action.kind)
+    }
+
+    fn notify(&self, message: &str) -> Result<(), ActionError> {
+        self.notifications
+            .lock()
+            .map_err(|_| ActionError::Unsupported("poisoned mock".into()))?
+            .push(message.to_string());
+        Ok(())
     }
 }
 

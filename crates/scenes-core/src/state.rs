@@ -176,6 +176,9 @@ impl<R: ActionRunner> SceneManager<R> {
         }
         self.active = Some(name.to_string());
         self.state = ManagerState::Active(name.to_string());
+        if self.config.settings.notify_on_enter {
+            let _ = self.runner.notify(&format!("Entered scene {name}"));
+        }
         self.persist()
     }
 
@@ -185,8 +188,11 @@ impl<R: ActionRunner> SceneManager<R> {
             self.runner.revert(snapshot)?;
         }
         self.snapshots.clear();
-        self.active = None;
+        let leaving = self.active.take().unwrap_or_default();
         self.state = ManagerState::Idle;
+        if self.config.settings.notify_on_leave && !leaving.is_empty() {
+            let _ = self.runner.notify(&format!("Left scene {leaving}"));
+        }
         self.persist()
     }
 
@@ -253,8 +259,14 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn test_config() -> Config {
+        let mut settings = Default::default();
+        {
+            let s: &mut crate::config::Settings = &mut settings;
+            s.notify_on_enter = true;
+            s.notify_on_leave = true;
+        }
         let mut config = Config {
-            settings: Default::default(),
+            settings,
             scene: BTreeMap::new(),
         };
         config.scene.insert(

@@ -1,4 +1,4 @@
-use crate::config::{glob_match, Config, Scene, When};
+use crate::config::{Config, Scene, When, glob_match};
 use crate::signal::Context;
 
 fn any_match(patterns: &[String], value: &str) -> bool {

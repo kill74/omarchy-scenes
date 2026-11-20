@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Survive omarchy update: re-validate config and restart the user service.
+set -u
+bin="${HOME:-/root}/.local/bin/scenes"
+[[ -x $bin ]] || exit 0
+"$bin" check >/dev/null 2>&1 || exit 0
+systemctl --user try-restart scenesd.service >/dev/null 2>&1 || true

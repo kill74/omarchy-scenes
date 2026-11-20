@@ -28,6 +28,10 @@ pub struct Settings {
     pub debounce_ms: u64,
     pub manual_override_pause: String,
     pub log_events: bool,
+    #[serde(default)]
+    pub notify_on_enter: bool,
+    #[serde(default)]
+    pub notify_on_leave: bool,
 }
 
 impl Default for Settings {
@@ -36,6 +40,8 @@ impl Default for Settings {
             debounce_ms: 400,
             manual_override_pause: "30m".to_string(),
             log_events: true,
+            notify_on_enter: false,
+            notify_on_leave: false,
         }
     }
 }
@@ -178,7 +184,7 @@ impl Config {
                         return Err(ConfigError::Invalid {
                             scene: name.clone(),
                             message: format!("unknown action kind '{other}'"),
-                        })
+                        });
                     }
                 };
                 let present = match required {

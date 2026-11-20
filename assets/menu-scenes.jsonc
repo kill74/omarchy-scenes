@@ -1,0 +1,43 @@
+  // scenes:begin
+  // Omarchy Scenes: context-aware desktop profiles.
+  "scenes": {
+    "icon": "󰅐",
+    "label": "Scenes",
+    "description": "Context-aware desktop profiles"
+  },
+  "scenes.status": {
+    "icon": "󰀫",
+    "label": "Status",
+    "action": "omarchy-launch-or-focus-tui \"zsh -c 'scenes status; read -k 1'\""
+  },
+  "scenes.focus": {
+    "icon": "󰲽",
+    "label": "Apply focus",
+    "action": "scenes apply focus"
+  },
+  "scenes.gaming": {
+    "icon": "󰊤",
+    "label": "Apply gaming",
+    "action": "scenes apply gaming"
+  },
+  "scenes.presenting": {
+    "icon": "󰎞",
+    "label": "Apply presenting",
+    "action": "scenes apply presenting"
+  },
+  "scenes.off": {
+    "icon": "󰜺",
+    "label": "Leave scene",
+    "action": "scenes off"
+  },
+  "scenes.pause": {
+    "icon": "󰔶",
+    "label": "Pause auto-switching",
+    "action": "scenes pause 30m"
+  },
+  "scenes.resume": {
+    "icon": "󰐊",
+    "label": "Resume auto-switching",
+    "action": "scenes resume"
+  }
+  // scenes:end
