@@ -1,0 +1,44 @@
+# Example scenes config. Installed to ~/.config/omarchy/scenes/scenes.toml
+# only when that file does not already exist.
+
+[settings]
+debounce_ms = 400
+manual_override_pause = "30m"
+log_events = true
+
+# Deep work in an editor or terminal.
+[scene.focus]
+priority = 50
+description = "Deep work on code"
+
+  [[scene.focus.when]]
+  window_class = ["code", "Code", "kitty", "Alacritty", "com.mitchellh.ghostty"]
+
+  [[scene.focus.do]]
+  kind = "omarchy"
+  run = "theme set 'Tokyo Night'"
+
+# Games: animations off. (Phase 1 supports hypr and theme actions.)
+[scene.gaming]
+priority = 80
+description = "Games and fullscreen play"
+
+  [[scene.gaming.when]]
+  window_class = ["steam_app_*", "gamescope"]
+
+  [[scene.gaming.do]]
+  kind = "hypr"
+  keyword = "animations:enabled"
+  value = "0"
+
+# Presenting: more than one monitor attached.
+[scene.presenting]
+priority = 90
+description = "Docked with an external display"
+
+  [[scene.presenting.when]]
+  monitors_min = 2
+
+  [[scene.presenting.do]]
+  kind = "omarchy"
+  run = "theme set 'Nord'"

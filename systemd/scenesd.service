@@ -1,0 +1,15 @@
+[Unit]
+Description=Omarchy Scenes — context-aware desktop profiles
+Documentation=https://github.com/kill74/omarchy-scenes
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/scenesd
+Restart=on-failure
+RestartSec=2
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=graphical-session.target
