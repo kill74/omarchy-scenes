@@ -244,10 +244,15 @@ async fn handle_request(request: Request, shared: Shared) -> Response {
             .cloned()
             .collect::<Vec<_>>()
             .join(" ")),
-        "apply" => manager
-            .apply_scene(&request.name)
-            .map(|_| format!("applied {}", request.name))
-            .map_err(|e| e.to_string()),
+        "apply" => {
+            let result = manager.apply_scene(&request.name);
+            if result.is_ok() {
+                manager.log_decision(&request.name, "manual apply");
+            }
+            result
+                .map(|_| format!("applied {}", request.name))
+                .map_err(|e| e.to_string())
+        }
         "off" => manager
             .revert_active()
             .map(|_| "reverted".to_string())

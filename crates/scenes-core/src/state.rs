@@ -137,6 +137,11 @@ impl<R: ActionRunner> SceneManager<R> {
         }
     }
 
+    /// Record a decision made outside signal handling (e.g. `scenes apply`).
+    pub fn log_decision(&self, scene: &str, detail: &str) {
+        self.log("decision", scene, &self.last_signals, detail);
+    }
+
     pub fn state(&self) -> &ManagerState {
         &self.state
     }

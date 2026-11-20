@@ -103,6 +103,20 @@ fn dnd_toggle() -> Result<(), ActionError> {
     Ok(())
 }
 
+/// `run` is an Omarchy CLI command. Accept both documented forms:
+/// `theme set X` and `omarchy theme set X`. Only the `omarchy` binary is ever
+/// spawned, so an unknown verb is harmless rather than arbitrary execution.
+fn omarchy_args(argv: &[String]) -> Result<Vec<String>, ActionError> {
+    let mut args = argv.to_vec();
+    if args.first().map(String::as_str) == Some("omarchy") {
+        args.remove(0);
+    }
+    if args.is_empty() {
+        return Err(ActionError::UnsafeOmarchy("empty command".into()));
+    }
+    Ok(args)
+}
+
 /// Only commands that change desktop state we can restore need a theme snapshot.
 fn omarchy_needs_snapshot(args: &[String]) -> bool {
     let first = args.first().map(String::as_str);
@@ -166,17 +180,13 @@ impl ActionRunner for CliRunner {
         match action.kind.as_str() {
             "omarchy" => {
                 let argv = split_command(&action.run)?;
-                let program = argv.first().map(String::as_str).unwrap_or("");
-                if program != "omarchy" {
-                    return Err(ActionError::UnsafeOmarchy(action.run.clone()));
-                }
-                let rest = &argv[1..];
-                let before = if omarchy_needs_snapshot(rest) {
+                let rest = omarchy_args(&argv)?;
+                let before = if omarchy_needs_snapshot(&rest) {
                     self.snapshot_theme()?
                 } else {
                     Snapshot::None
                 };
-                omarchy(rest)?;
+                omarchy(&rest)?;
                 Ok(before)
             }
             "hypr" => {
@@ -368,6 +378,20 @@ mod tests {
     #[test]
     fn rejects_unclosed_quotes() {
         assert!(split_command("theme set 'Tokyo").is_err());
+    }
+
+    #[test]
+    fn accepts_documented_and_prefixed_omarchy_commands() {
+        let argv = split_command("theme set 'Tokyo Night'").unwrap_or_default();
+        assert_eq!(
+            omarchy_args(&argv).unwrap_or_default(),
+            vec!["theme", "set", "Tokyo Night"]
+        );
+        let argv = split_command("omarchy theme set 'Tokyo Night'").unwrap_or_default();
+        assert_eq!(
+            omarchy_args(&argv).unwrap_or_default(),
+            vec!["theme", "set", "Tokyo Night"]
+        );
     }
 
     #[test]
