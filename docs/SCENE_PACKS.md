@@ -7,14 +7,19 @@ A pack is a git repository containing `scene-pack.toml` and a scenes TOML file.
 name = "Focus Pack"
 version = "1.0.0"
 description = "Deep work scenes"
+scenes_file = "scenes.toml"
 
 [[permissions]]
 kind = "theme"
 value = "Tokyo Night"
 description = "changes the active Omarchy theme"
-
-scenes_file = "scenes.toml"
 ```
+
+`scenes_file` belongs inside `[pack]` (TOML bare keys after a table header are
+part of that table). A legacy top-level `scenes_file` is still accepted, but
+`pack.scenes_file` wins when both are present. It must be a plain `.toml`
+filename with no path separators or `..`. Manifests are capped at 64 KiB and
+scenes files at 1 MiB.
 
 Inspect a local manifest:
 

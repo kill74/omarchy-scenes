@@ -9,7 +9,7 @@ use scenes_core::signal::{Context, Signal};
 use scenes_core::signals::{SignalSource, SystemSignals};
 use scenes_core::state::{ManagerState, SceneManager};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
@@ -49,6 +49,10 @@ impl Response {
 }
 
 type Shared = Arc<Mutex<SceneManager<CliRunner>>>;
+
+/// One IPC request is a single JSON line. Bound it so a broken client cannot
+/// make the daemon allocate unbounded memory.
+const MAX_REQUEST_BYTES: usize = 64 * 1024;
 
 fn state_dir() -> PathBuf {
     std::env::var_os("XDG_STATE_HOME")
@@ -156,7 +160,16 @@ async fn main() {
     };
     let shared: Shared = Arc::new(Mutex::new(manager));
     let ipc = ipc_path();
-    let _ = std::fs::remove_file(&ipc);
+    if UnixStream::connect(&ipc).await.is_ok() {
+        eprintln!("scenesd: already running at {}", ipc.display());
+        std::process::exit(1);
+    }
+    if ipc.exists()
+        && let Err(err) = std::fs::remove_file(&ipc)
+    {
+        eprintln!("scenesd: cannot remove stale socket: {err}");
+        std::process::exit(1);
+    }
     let listener = match UnixListener::bind(&ipc) {
         Ok(listener) => listener,
         Err(err) => {
@@ -195,7 +208,10 @@ async fn ipc_loop(listener: UnixListener, shared: Shared) {
 async fn handle_client(stream: UnixStream, shared: Shared) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
-    let read = reader.read_line(&mut line).await?;
+    let read = (&mut reader)
+        .take(MAX_REQUEST_BYTES as u64)
+        .read_line(&mut line)
+        .await?;
     let response = if read == 0 {
         Response::err("empty request".into())
     } else {
@@ -256,6 +272,48 @@ async fn handle_request(request: Request, shared: Shared) -> Response {
     }
 }
 
+/// Blocking probe of all extended sources. Runs on a worker thread so a slow
+/// `nmcli` or `pactl` call never stalls the IPC or Hyprland event loops.
+fn collect_signal_changes(ctx: &Context) -> Vec<Signal> {
+    let signals = SystemSignals;
+    let mut changes = Vec::new();
+    if let Some(count) = signals.monitor_count()
+        && count != ctx.monitor_count
+    {
+        changes.push(Signal::MonitorCount(count));
+    }
+    if let Some(ssid) = signals.wifi_ssid()
+        && ssid != ctx.ssid
+    {
+        changes.push(Signal::Ssid(ssid));
+    }
+    if let Some(sink) = signals.audio_sink()
+        && sink != ctx.audio_sink
+    {
+        changes.push(Signal::AudioSink(sink));
+    }
+    if let Some(power) = signals.power()
+        && power != ctx.power
+    {
+        changes.push(Signal::Power(power));
+    }
+    if let Some(level) = signals.battery()
+        && Some(level) != ctx.battery
+    {
+        changes.push(Signal::Battery(level));
+    }
+    let game = signals.game_active();
+    if game != ctx.game_active {
+        changes.push(Signal::Game(game));
+    }
+    if let Some(cwd) = signals.focused_cwd()
+        && cwd != ctx.cwd
+    {
+        changes.push(Signal::Cwd(cwd));
+    }
+    changes
+}
+
 async fn hypr_loop(shared: Shared, debounce_ms: u64, signal_poll_ms: u64) -> Result<(), String> {
     let mut ctx = Context::default();
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
@@ -286,40 +344,18 @@ async fn hypr_loop(shared: Shared, debounce_ms: u64, signal_poll_ms: u64) -> Res
                     let _ = manager.handle_signal(&Signal::Tick, &ctx);
                 }
                 _ = poll_ticker.tick() => {
-                    let signals = SystemSignals;
-                    let mut changes: Vec<Signal> = Vec::new();
-                    if let Some(count) = signals.monitor_count()
-                        && count != ctx.monitor_count
+                    let current = ctx.clone();
+                    let changes = match tokio::task::spawn_blocking(move || {
+                        collect_signal_changes(&current)
+                    })
+                    .await
                     {
-                        changes.push(Signal::MonitorCount(count));
-                    }
-                    if let Some(ssid) = signals.wifi_ssid()
-                        && ssid != ctx.ssid
-                    {
-                        changes.push(Signal::Ssid(ssid));
-                    }
-                    if let Some(sink) = signals.audio_sink()
-                        && sink != ctx.audio_sink
-                    {
-                        changes.push(Signal::AudioSink(sink));
-                    }
-                    if let Some(power) = signals.power()
-                        && power != ctx.power
-                    {
-                        changes.push(Signal::Power(power));
-                    }
-                    if let Some(level) = signals.battery()
-                        && Some(level) != ctx.battery
-                    {
-                        changes.push(Signal::Battery(level));
-                    }
-                    let game = signals.game_active();
-                    if game != ctx.game_active { changes.push(Signal::Game(game)); }
-                    if let Some(cwd) = signals.focused_cwd()
-                        && cwd != ctx.cwd
-                    {
-                        changes.push(Signal::Cwd(cwd));
-                    }
+                        Ok(changes) => changes,
+                        Err(err) => {
+                            eprintln!("scenesd: signal probe failed: {err}");
+                            Vec::new()
+                        }
+                    };
                     if !changes.is_empty() {
                         let mut manager = shared.lock().await;
                         for change in changes {

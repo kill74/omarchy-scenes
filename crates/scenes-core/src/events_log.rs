@@ -113,7 +113,7 @@ impl SqliteLog {
     pub fn suggest(&self) -> Result<String, LogError> {
         let conn = self.conn.lock().map_err(|_| LogError::Busy)?;
         let mut stmt = conn
-            .prepare("SELECT scene, signals FROM events WHERE kind='decision' AND scene != ''")
+            .prepare("SELECT scene, signals FROM events WHERE kind='decision' AND scene != '' ORDER BY ts DESC, id DESC LIMIT 1000")
             .map_err(|e| LogError::Db(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {

@@ -1,6 +1,7 @@
 //! Scene packs: inspect a manifest and show its permissions before any install.
 //! Installation never happens without an explicit confirmation flag.
 
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 
@@ -19,6 +20,22 @@ pub enum PackError {
     NeedsConfirm,
     #[error("copy failed: {0}")]
     Copy(String),
+    #[error("invalid scenes_file name: {0}")]
+    InvalidScenesFile(String),
+    #[error("file too large: {0}")]
+    TooLarge(String),
+}
+
+const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+const MAX_SCENES_BYTES: u64 = 1024 * 1024;
+
+fn valid_scenes_file(name: &str) -> bool {
+    !name.is_empty()
+        && name.ends_with(".toml")
+        && !name.starts_with('.')
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,6 +45,10 @@ pub struct PackInfo {
     pub description: String,
     #[serde(default)]
     pub version: String,
+    /// Preferred TOML location: inside [pack] (bare keys after a table belong
+    /// to that table). Kept optional for older packs that used a top-level key.
+    #[serde(default)]
+    pub scenes_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -43,8 +64,9 @@ pub struct PackManifest {
     pub pack: PackInfo,
     #[serde(default)]
     pub permissions: Vec<Permission>,
-    #[serde(default = "default_scenes_file")]
-    pub scenes_file: String,
+    /// Legacy top-level placement; `pack.scenes_file` wins when both exist.
+    #[serde(default)]
+    pub scenes_file: Option<String>,
 }
 
 fn default_scenes_file() -> String {
@@ -52,9 +74,33 @@ fn default_scenes_file() -> String {
 }
 
 impl PackManifest {
+    pub fn scenes_file(&self) -> String {
+        self.pack
+            .scenes_file
+            .clone()
+            .or_else(|| self.scenes_file.clone())
+            .unwrap_or_else(default_scenes_file)
+    }
+
     pub fn load(path: &Path) -> Result<Self, PackError> {
-        let text = std::fs::read_to_string(path).map_err(|e| PackError::Read(e.to_string()))?;
-        toml::from_str(&text).map_err(|e| PackError::Parse(e.to_string()))
+        let file = std::fs::File::open(path).map_err(|e| PackError::Read(e.to_string()))?;
+        let size = file
+            .metadata()
+            .map(|m| m.len())
+            .map_err(|e| PackError::Read(e.to_string()))?;
+        if size > MAX_MANIFEST_BYTES {
+            return Err(PackError::TooLarge("scene-pack.toml".into()));
+        }
+        let mut text = String::new();
+        file.take(MAX_MANIFEST_BYTES)
+            .read_to_string(&mut text)
+            .map_err(|e| PackError::Read(e.to_string()))?;
+        let manifest: Self = toml::from_str(&text).map_err(|e| PackError::Parse(e.to_string()))?;
+        let scenes_file = manifest.scenes_file();
+        if !valid_scenes_file(&scenes_file) {
+            return Err(PackError::InvalidScenesFile(scenes_file));
+        }
+        Ok(manifest)
     }
 
     pub fn summary(&self) -> String {
@@ -72,7 +118,7 @@ impl PackManifest {
                 ));
             }
         }
-        out.push_str(&format!("Scenes file: {}\n", self.scenes_file));
+        out.push_str(&format!("Scenes file: {}\n", self.scenes_file()));
         out
     }
 }
@@ -88,16 +134,24 @@ pub fn fetch(url: &str) -> Result<(std::path::PathBuf, PackManifest), PackError>
             .map(|d| d.as_millis())
             .unwrap_or_default()
     ));
-    let status = Command::new("git")
-        .args(["clone", "--depth", "1", "--quiet", url])
-        .arg(&dir)
-        .status()
-        .map_err(|e| PackError::Git(e.to_string()))?;
-    if !status.success() {
-        return Err(PackError::Git(format!("exit status {status}")));
+    let result = (|| -> Result<PackManifest, PackError> {
+        let status = Command::new("git")
+            .args(["clone", "--depth", "1", "--quiet", url])
+            .arg(&dir)
+            .status()
+            .map_err(|e| PackError::Git(e.to_string()))?;
+        if !status.success() {
+            return Err(PackError::Git(format!("exit status {status}")));
+        }
+        PackManifest::load(&dir.join("scene-pack.toml"))
+    })();
+    match result {
+        Ok(manifest) => Ok((dir, manifest)),
+        Err(err) => {
+            let _ = std::fs::remove_dir_all(&dir);
+            Err(err)
+        }
     }
-    let manifest = PackManifest::load(&dir.join("scene-pack.toml"))?;
-    Ok((dir, manifest))
 }
 
 /// Install the pack's scenes file into the user config. Refuses to overwrite.
@@ -110,8 +164,15 @@ pub fn install_pack(
     if !confirm {
         return Err(PackError::NeedsConfirm);
     }
-    let source = dir.join(&manifest.scenes_file);
-    let target = config_dir.join(&manifest.scenes_file);
+    let scenes_file = manifest.scenes_file();
+    let source = dir.join(&scenes_file);
+    let size = std::fs::metadata(&source)
+        .map(|m| m.len())
+        .map_err(|e| PackError::Copy(e.to_string()))?;
+    if size > MAX_SCENES_BYTES {
+        return Err(PackError::TooLarge(scenes_file));
+    }
+    let target = config_dir.join(&scenes_file);
     if target.exists() {
         return Err(PackError::Copy(format!(
             "{} already exists; remove it first",
@@ -146,15 +207,50 @@ mod tests {
     }
 
     #[test]
+    fn rejects_path_traversal_in_scenes_file() {
+        let dir = std::env::temp_dir().join(format!("scenes-pack-bad-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("scene-pack.toml");
+        std::fs::write(
+            &file,
+            "[pack]\nname = \"Bad\"\nversion = \"1\"\ndescription = \"\"\nscenes_file = \"../../etc/passwd.toml\"\n",
+        )
+        .unwrap_or_default();
+        assert!(matches!(
+            PackManifest::load(&file),
+            Err(PackError::InvalidScenesFile(_))
+        ));
+        let _ = std::fs::remove_file(file);
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn accepts_legacy_top_level_scenes_file() {
+        let dir = std::env::temp_dir().join(format!("scenes-pack-legacy-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("scene-pack.toml");
+        std::fs::write(
+            &file,
+            "scenes_file = \"legacy.toml\"\n[pack]\nname = \"Legacy\"\nversion = \"1\"\ndescription = \"\"\n",
+        )
+        .unwrap_or_default();
+        let manifest = PackManifest::load(&file).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(manifest.scenes_file(), "legacy.toml");
+        let _ = std::fs::remove_file(file);
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
     fn refuses_install_without_confirmation() {
         let manifest = PackManifest {
             pack: PackInfo {
                 name: "x".into(),
                 description: String::new(),
                 version: String::new(),
+                scenes_file: None,
             },
             permissions: Vec::new(),
-            scenes_file: "scenes.toml".into(),
+            scenes_file: None,
         };
         let result = install_pack(Path::new("/tmp"), &manifest, Path::new("/tmp/nope"), false);
         assert!(matches!(result, Err(PackError::NeedsConfirm)));

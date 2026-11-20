@@ -51,7 +51,6 @@ pub trait ActionRunner: Send + Sync {
 fn run(program: &str, args: &[String]) -> Result<String, ActionError> {
     let output = Command::new(program)
         .args(args)
-        .env("SCENES_INTERNAL", "1")
         .output()
         .map_err(|source| ActionError::Command {
             program: program.to_string(),
@@ -65,6 +64,55 @@ fn run(program: &str, args: &[String]) -> Result<String, ActionError> {
             message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
         })
     }
+}
+
+/// Run an Omarchy CLI command. The internal marker suppresses the manual
+/// override hook, so a scene applying a theme does not pause itself.
+fn omarchy(args: &[String]) -> Result<String, ActionError> {
+    let output = Command::new("omarchy")
+        .args(args)
+        .env("SCENES_INTERNAL", "1")
+        .output()
+        .map_err(|source| ActionError::Command {
+            program: "omarchy".into(),
+            message: source.to_string(),
+        })?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(ActionError::Command {
+            program: "omarchy".into(),
+            message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        })
+    }
+}
+
+fn quiet_path() -> Result<PathBuf, ActionError> {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
+        .ok_or(ActionError::NoStateDir)
+        .map(|base| base.join("omarchy/notifications/quiet.json"))
+}
+
+fn dnd_toggle() -> Result<(), ActionError> {
+    run(
+        "omarchy-shell",
+        &["notifications".into(), "toggleDnd".into()],
+    )?;
+    Ok(())
+}
+
+/// Only commands that change desktop state we can restore need a theme snapshot.
+fn omarchy_needs_snapshot(args: &[String]) -> bool {
+    let first = args.first().map(String::as_str);
+    let second = args.get(1).map(String::as_str);
+    matches!(
+        (first, second),
+        (Some("theme"), Some("set" | "bg" | "refresh"))
+            | (Some("bar"), Some("background"))
+            | (Some("toggle"), Some("bar"))
+    )
 }
 
 /// Split a command line into argv, honouring single and double quotes.
@@ -122,8 +170,13 @@ impl ActionRunner for CliRunner {
                 if program != "omarchy" {
                     return Err(ActionError::UnsafeOmarchy(action.run.clone()));
                 }
-                let before = self.snapshot_theme()?;
-                run("omarchy", &argv[1..])?;
+                let rest = &argv[1..];
+                let before = if omarchy_needs_snapshot(rest) {
+                    self.snapshot_theme()?
+                } else {
+                    Snapshot::None
+                };
+                omarchy(rest)?;
                 Ok(before)
             }
             "hypr" => {
@@ -137,19 +190,12 @@ impl ActionRunner for CliRunner {
                 })
             }
             "notify" => {
-                let quiet_path = std::env::var_os("XDG_STATE_HOME")
-                    .map(PathBuf::from)
-                    .or_else(|| {
-                        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state"))
-                    })
-                    .ok_or(ActionError::NoStateDir)?
-                    .join("omarchy/notifications/quiet.json");
-                let quiet_text = std::fs::read_to_string(&quiet_path).unwrap_or_default();
-                if let Some(true) = action.dnd {
-                    let _ = run(
-                        "omarchy-shell",
-                        &["notifications".into(), "toggleDnd".into()],
-                    );
+                let path = quiet_path()?;
+                let quiet_text = std::fs::read_to_string(&path).unwrap_or_default();
+                let currently = quiet_text.contains("true");
+                let desired = action.dnd.unwrap_or(false);
+                if currently != desired {
+                    dnd_toggle()?;
                 }
                 Ok(Snapshot::Dnd { quiet_text })
             }
@@ -166,48 +212,33 @@ impl ActionRunner for CliRunner {
                 bar_background,
                 bar_off,
             } => {
-                run("omarchy", &["theme".into(), "set".into(), slug.clone()])?;
+                omarchy(&["theme".into(), "set".into(), slug.clone()])?;
                 if !background.is_empty() {
-                    run(
-                        "omarchy",
-                        &[
-                            "theme".into(),
-                            "bg".into(),
-                            "set".into(),
-                            background.clone(),
-                        ],
-                    )?;
+                    omarchy(&[
+                        "theme".into(),
+                        "bg".into(),
+                        "set".into(),
+                        background.clone(),
+                    ])?;
                 }
                 if !bar_background.is_empty() {
-                    run(
-                        "omarchy",
-                        &["bar".into(), "background".into(), bar_background.clone()],
-                    )?;
+                    omarchy(&["bar".into(), "background".into(), bar_background.clone()])?;
                 }
                 let wanted = if *bar_off { "on" } else { "off" };
-                run("omarchy", &["toggle".into(), "bar".into(), wanted.into()])?;
+                omarchy(&["toggle".into(), "bar".into(), wanted.into()])?;
                 Ok(())
             }
             Snapshot::Hypr { key, value } => {
                 run("hyprctl", &["keyword".into(), key.clone(), value.clone()]).map(|_| ())
             }
             Snapshot::Dnd { quiet_text } => {
-                let path = std::env::var_os("XDG_STATE_HOME")
-                    .map(PathBuf::from)
-                    .or_else(|| {
-                        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state"))
-                    })
-                    .ok_or(ActionError::NoStateDir)?
-                    .join("omarchy/notifications/quiet.json");
+                let path = quiet_path()?;
                 let wanted = quiet_text.contains("true");
                 let current = std::fs::read_to_string(&path)
                     .unwrap_or_default()
                     .contains("true");
                 if wanted != current {
-                    run(
-                        "omarchy-shell",
-                        &["notifications".into(), "toggleDnd".into()],
-                    )?;
+                    dnd_toggle()?;
                 }
                 Ok(())
             }
@@ -224,15 +255,12 @@ impl ActionRunner for CliRunner {
     }
 
     fn notify(&self, message: &str) -> Result<(), ActionError> {
-        run(
-            "omarchy",
-            &[
-                "notification".into(),
-                "send".into(),
-                "Scenes".into(),
-                message.into(),
-            ],
-        )?;
+        omarchy(&[
+            "notification".into(),
+            "send".into(),
+            "Scenes".into(),
+            message.into(),
+        ])?;
         Ok(())
     }
 }
@@ -250,8 +278,7 @@ impl CliRunner {
         let background = std::fs::read_link(base.join("omarchy/current/background"))
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
-        let bar_background =
-            run("omarchy", &["bar".into(), "background".into()]).unwrap_or_default();
+        let bar_background = omarchy(&["bar".into(), "background".into()]).unwrap_or_default();
         let bar_off = base.join("omarchy/toggles/bar-off").exists();
         Ok(Snapshot::Theme {
             slug,
@@ -341,6 +368,24 @@ mod tests {
     #[test]
     fn rejects_unclosed_quotes() {
         assert!(split_command("theme set 'Tokyo").is_err());
+    }
+
+    #[test]
+    fn snapshots_only_state_changing_omarchy_commands() {
+        let args = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(omarchy_needs_snapshot(&args(&["theme", "set", "Nord"])));
+        assert!(omarchy_needs_snapshot(&args(&[
+            "bar",
+            "background",
+            "opaque"
+        ])));
+        assert!(omarchy_needs_snapshot(&args(&["toggle", "bar", "on"])));
+        assert!(!omarchy_needs_snapshot(&args(&[
+            "notification",
+            "send",
+            "hi"
+        ])));
+        assert!(!omarchy_needs_snapshot(&args(&["theme", "list"])));
     }
 
     #[test]

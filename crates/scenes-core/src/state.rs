@@ -124,14 +124,16 @@ impl<R: ActionRunner> SceneManager<R> {
     }
 
     fn log(&self, kind: &str, scene: &str, signals: &str, detail: &str) {
-        if let Some(sink) = &self.sink {
-            let _ = sink.record(&EventRecord {
+        if let Some(sink) = &self.sink
+            && let Err(err) = sink.record(&EventRecord {
                 kind: kind.to_string(),
                 scene: scene.to_string(),
                 signals: signals.to_string(),
                 detail: detail.to_string(),
                 ts: now_secs() as i64,
-            });
+            })
+        {
+            eprintln!("scenes: event log write failed: {err}");
         }
     }
 
@@ -158,12 +160,15 @@ impl<R: ActionRunner> SceneManager<R> {
 
         self.last_signals = ctx.to_signal_json();
         let best = best_match(&self.config, ctx).map(|(name, _)| name.to_string());
-        self.log(
-            "decision",
-            best.as_deref().unwrap_or(""),
-            &self.last_signals,
-            "signal event",
-        );
+        // A periodic tick that confirms the current scene is not a new decision.
+        if best.as_deref() != self.active.as_deref() {
+            self.log(
+                "decision",
+                best.as_deref().unwrap_or(""),
+                &self.last_signals,
+                "signal event",
+            );
+        }
 
         if matches!(signal, Signal::Manual) {
             return self.manual_override();

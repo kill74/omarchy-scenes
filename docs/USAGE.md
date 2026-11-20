@@ -51,5 +51,10 @@ The manager writes `state.json` after every action. On startup, any snapshot
 found there is reverted before normal operation, so a `kill -9` cannot leave a
 half-applied scene behind. Pausing state is persisted too.
 
+Robustness notes: a second daemon refuses to start if one already owns the
+socket, IPC requests are capped at 64 KiB, extended signal probes run on worker
+threads, and scene-pack manifests/files are size-limited with `scenes_file`
+restricted to a plain `.toml` filename.
+
 The event log is `~/.local/state/omarchy-scenes/events.db`. `scenes why`,
 `scenes stats` and `scenes suggest` read it directly; no daemon request needed.

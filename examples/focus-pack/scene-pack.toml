@@ -2,6 +2,7 @@
 name = "Focus Pack"
 version = "1.0.0"
 description = "A small starter pack for deep work"
+scenes_file = "scenes.toml"
 
 [[permissions]]
 kind = "theme"
@@ -12,5 +13,3 @@ description = "changes the active Omarchy theme"
 kind = "hypr"
 value = "animations:enabled"
 description = "toggles Hyprland animations"
-
-scenes_file = "scenes.toml"
