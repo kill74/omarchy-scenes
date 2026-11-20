@@ -189,11 +189,11 @@ stateDiagram-v2
 - [x] Survive `omarchy update` (post-update hook re-validates install and config).
 - [x] Manual-override detection (user changes theme/toggle by hand → pause).
 
-### Phase 3 — More signals
-- [ ] Git repo / cwd of focused terminal (via `/proc` of the window PID).
-- [ ] Monitor hot-plug, power source, battery threshold, time ranges.
-- [ ] Game detection (Steam app classes, gamescope, GameMode).
-- [ ] Audio sink and network SSID.
+### Phase 3 — More signals — **DONE**
+- [x] Git repo / cwd of focused terminal (via `/proc` of the window PID).
+- [x] Monitor hot-plug, power source, battery threshold, time ranges.
+- [x] Game detection (Steam app classes, gamescope, GameMode).
+- [x] Audio sink and network SSID.
 
 ### Phase 4 — Explain & learn
 - [ ] SQLite event log (signals, matches, applied scenes, overrides).

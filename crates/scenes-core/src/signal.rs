@@ -13,6 +13,7 @@ pub struct Context {
     pub battery: Option<u8>,
     pub ssid: String,
     pub audio_sink: String,
+    pub game_active: bool,
     pub minute_of_day: u32,
 }
 
@@ -26,6 +27,7 @@ pub enum Signal {
     Battery(u8),
     Ssid(String),
     AudioSink(String),
+    Game(bool),
     Manual,
 }
 
@@ -63,6 +65,7 @@ impl Context {
             Signal::Battery(level) => self.battery = Some(*level),
             Signal::Ssid(name) => self.ssid = name.clone(),
             Signal::AudioSink(name) => self.audio_sink = name.clone(),
+            Signal::Game(active) => self.game_active = *active,
             Signal::Tick | Signal::Manual => {}
         }
     }
@@ -73,7 +76,7 @@ impl Context {
 }
 
 /// Walk up from a directory looking for a `.git` marker. No git binary needed.
-fn git_root(path: &str) -> String {
+pub fn git_root(path: &str) -> String {
     let mut dir = std::path::Path::new(path).to_path_buf();
     loop {
         if dir.join(".git").exists() {

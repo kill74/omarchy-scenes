@@ -64,6 +64,7 @@ fn usage() {
            pause [duration]     Pause auto-switching (e.g. 30m, 1800)\n\
            resume               Resume auto-switching\n\
            check                Validate scenes.toml without the daemon\n\
+           signals              Print the current extended signals\n\
            why | stats          Planned for Phase 4\n"
     );
 }
@@ -101,6 +102,18 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        return;
+    }
+    if command == "signals" {
+        use scenes_core::signals::{SignalSource, SystemSignals};
+        let source = SystemSignals;
+        println!("monitors: {:?}", source.monitor_count());
+        println!("ssid: {:?}", source.wifi_ssid());
+        println!("audio sink: {:?}", source.audio_sink());
+        println!("power: {:?}", source.power());
+        println!("battery: {:?}", source.battery());
+        println!("game active: {}", source.game_active());
+        println!("focused cwd: {:?}", source.focused_cwd());
         return;
     }
     if matches!(command.as_str(), "why" | "stats" | "suggest") {

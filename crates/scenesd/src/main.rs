@@ -5,6 +5,7 @@ use scenes_core::actions::CliRunner;
 use scenes_core::config::Config;
 use scenes_core::events::{self, HyprEvent};
 use scenes_core::signal::{Context, Signal};
+use scenes_core::signals::{SignalSource, SystemSignals};
 use scenes_core::state::{ManagerState, SceneManager};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -128,6 +129,7 @@ async fn main() {
         }
     };
     let debounce_ms = config.settings.debounce_ms;
+    let signal_poll_ms = config.settings.signal_poll_ms;
     let state_dir = state_dir();
     if let Err(err) = std::fs::create_dir_all(&state_dir) {
         eprintln!("scenesd: cannot create state dir: {err}");
@@ -153,7 +155,7 @@ async fn main() {
     };
 
     let ipc_task = tokio::spawn(ipc_loop(listener, shared.clone()));
-    let hypr_task = tokio::spawn(hypr_loop(shared.clone(), debounce_ms));
+    let hypr_task = tokio::spawn(hypr_loop(shared.clone(), debounce_ms, signal_poll_ms));
 
     tokio::select! {
         _ = ipc_task => {}
@@ -243,9 +245,11 @@ async fn handle_request(request: Request, shared: Shared) -> Response {
     }
 }
 
-async fn hypr_loop(shared: Shared, debounce_ms: u64) -> Result<(), String> {
+async fn hypr_loop(shared: Shared, debounce_ms: u64, signal_poll_ms: u64) -> Result<(), String> {
     let mut ctx = Context::default();
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut poll_ticker =
+        tokio::time::interval(std::time::Duration::from_millis(signal_poll_ms.max(1000)));
     loop {
         let socket = match socket2_path() {
             Some(path) if path.exists() => path,
@@ -269,6 +273,39 @@ async fn hypr_loop(shared: Shared, debounce_ms: u64) -> Result<(), String> {
                     context_snapshot(&mut ctx);
                     let mut manager = shared.lock().await;
                     let _ = manager.handle_signal(&Signal::Tick, &ctx);
+                }
+                _ = poll_ticker.tick() => {
+                    let signals = SystemSignals;
+                    let mut changes: Vec<Signal> = Vec::new();
+                    if let Some(count) = signals.monitor_count() {
+                        if count != ctx.monitor_count { changes.push(Signal::MonitorCount(count)); }
+                    }
+                    if let Some(ssid) = signals.wifi_ssid() {
+                        if ssid != ctx.ssid { changes.push(Signal::Ssid(ssid)); }
+                    }
+                    if let Some(sink) = signals.audio_sink() {
+                        if sink != ctx.audio_sink { changes.push(Signal::AudioSink(sink)); }
+                    }
+                    if let Some(power) = signals.power() {
+                        if power != ctx.power { changes.push(Signal::Power(power)); }
+                    }
+                    if let Some(level) = signals.battery() {
+                        if Some(level) != ctx.battery { changes.push(Signal::Battery(level)); }
+                    }
+                    let game = signals.game_active();
+                    if game != ctx.game_active { changes.push(Signal::Game(game)); }
+                    if let Some(cwd) = signals.focused_cwd() {
+                        if cwd != ctx.cwd { changes.push(Signal::Cwd(cwd)); }
+                    }
+                    if !changes.is_empty() {
+                        let mut manager = shared.lock().await;
+                        for change in changes {
+                            ctx.apply(&change);
+                            if let Err(err) = manager.handle_signal(&change, &ctx) {
+                                eprintln!("scenesd: {err}");
+                            }
+                        }
+                    }
                 }
                 line = lines.next_line() => {
                     let Some(line) = line.ok().flatten() else { break };

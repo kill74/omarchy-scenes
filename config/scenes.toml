@@ -5,6 +5,7 @@
 debounce_ms = 400
 manual_override_pause = "30m"
 log_events = true
+signal_poll_ms = 5000
 # Quiet by default; set true if you want a notification on scene enter/leave.
 notify_on_enter = false
 notify_on_leave = false
@@ -17,6 +18,9 @@ description = "Deep work on code"
   [[scene.focus.when]]
   window_class = ["code", "Code", "kitty", "Alacritty", "com.mitchellh.ghostty"]
 
+  [[scene.focus.when]]
+  monitors_max = 1
+
   [[scene.focus.do]]
   kind = "omarchy"
   run = "theme set 'Tokyo Night'"
@@ -28,6 +32,9 @@ description = "Games and fullscreen play"
 
   [[scene.gaming.when]]
   window_class = ["steam_app_*", "gamescope"]
+
+  [[scene.gaming.when]]
+  game = true
 
   [[scene.gaming.do]]
   kind = "hypr"

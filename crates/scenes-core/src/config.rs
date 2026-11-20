@@ -29,6 +29,8 @@ pub struct Settings {
     pub manual_override_pause: String,
     pub log_events: bool,
     #[serde(default)]
+    pub signal_poll_ms: u64,
+    #[serde(default)]
     pub notify_on_enter: bool,
     #[serde(default)]
     pub notify_on_leave: bool,
@@ -40,6 +42,7 @@ impl Default for Settings {
             debounce_ms: 400,
             manual_override_pause: "30m".to_string(),
             log_events: true,
+            signal_poll_ms: 5000,
             notify_on_enter: false,
             notify_on_leave: false,
         }
@@ -90,6 +93,10 @@ pub struct When {
     pub power: Option<String>,
     #[serde(default)]
     pub time_range: Option<String>,
+    #[serde(default)]
+    pub monitors_max: Option<usize>,
+    #[serde(default)]
+    pub game: Option<bool>,
 }
 
 impl When {
@@ -106,6 +113,8 @@ impl When {
             && self.battery_below.is_none()
             && self.power.is_none()
             && self.time_range.is_none()
+            && self.monitors_max.is_none()
+            && self.game.is_none()
     }
 }
 

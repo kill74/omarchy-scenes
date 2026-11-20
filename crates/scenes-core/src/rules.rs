@@ -58,6 +58,16 @@ pub fn when_matches(when: &When, ctx: &Context) -> bool {
             return false;
         }
     }
+    if let Some(max) = when.monitors_max {
+        if ctx.monitor_count > max {
+            return false;
+        }
+    }
+    if let Some(wanted) = when.game {
+        if ctx.game_active != wanted {
+            return false;
+        }
+    }
     if let Some(level) = when.battery_below {
         if ctx.battery.map_or(true, |b| b >= level) {
             return false;
@@ -154,6 +164,27 @@ mod tests {
         assert_eq!(best_match(&config, &ctx).map(|(n, _)| n), Some("game"));
         ctx.workspace = "9".into();
         assert_eq!(best_match(&config, &ctx).map(|(n, _)| n), Some("game"));
+    }
+
+    #[test]
+    fn monitors_and_game_conditions() {
+        let when = When {
+            monitors_max: Some(1),
+            game: Some(true),
+            ..Default::default()
+        };
+        let ctx = Context {
+            monitor_count: 2,
+            game_active: true,
+            ..Default::default()
+        };
+        assert!(!when_matches(&when, &ctx));
+        let ctx = Context {
+            monitor_count: 1,
+            game_active: true,
+            ..Default::default()
+        };
+        assert!(when_matches(&when, &ctx));
     }
 
     #[test]
