@@ -51,6 +51,16 @@ For testing without touching systemd:
 SCENES_SKIP_BUILD=1 SCENES_BIN_DIR="$PWD/target/debug" SCENES_SKIP_SYSTEMD=1 ./install.sh
 ```
 
+## Releases and packages
+
+- **Releases:** https://github.com/kill74/omarchy-scenes/releases — each tag
+  publishes `scenes` and `scenesd` binaries with generated notes.
+- **Container:** `ghcr.io/kill74/omarchy-scenes:<version>` and `:latest`.
+- **AUR:** [`packaging/aur/PKGBUILD`](packaging/aur/PKGBUILD) is included;
+  publishing it to the AUR is a manual maintainer step.
+
+See [`docs/RELEASING.md`](docs/RELEASING.md) for the release checklist.
+
 ## Quick start
 
 ```bash

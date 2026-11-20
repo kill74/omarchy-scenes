@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/kill74/omarchy-scenes#readme
+    about: Installation, configuration and CLI reference.
+  - name: Marketplace listing
+    url: https://plugins.omarchy.org/plugin.html?id=io.github.kill74.scenes
+    about: Listing, version and verified snapshot information.
+  - name: Security report
+    url: https://github.com/kill74/omarchy-scenes/security/advisories/new
+    about: Report vulnerabilities privately.
