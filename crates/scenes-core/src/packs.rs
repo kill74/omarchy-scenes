@@ -5,6 +5,7 @@ use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 
+use crate::config::Config;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -24,6 +25,98 @@ pub enum PackError {
     InvalidScenesFile(String),
     #[error("file too large: {0}")]
     TooLarge(String),
+    #[error("revision mismatch: reviewed {expected}, installing {actual}")]
+    RevisionMismatch { expected: String, actual: String },
+    #[error("cannot read git revision: {0}")]
+    Revision(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct PackReview {
+    pub revision: String,
+    pub permissions: Vec<String>,
+}
+
+fn actual_permission(action: &crate::config::ActionSpec) -> String {
+    match action.kind.as_str() {
+        "omarchy" => {
+            let argv = crate::actions::split_command(&action.run).unwrap_or_default();
+            match (
+                argv.first().map(String::as_str),
+                argv.get(1).map(String::as_str),
+            ) {
+                (Some("theme"), Some("set" | "bg" | "refresh")) => "omarchy theme change".into(),
+                (Some("bar"), Some("background")) => "omarchy bar background".into(),
+                (Some("toggle"), Some("bar")) => "omarchy bar visibility".into(),
+                _ => format!("omarchy {}", action.run),
+            }
+        }
+        "hypr" => format!("hyprctl keyword {}", action.keyword),
+        "notify" => format!("notifications dnd={:?}", action.dnd.unwrap_or(false)),
+        "power" => format!("power profile {}", action.profile),
+        "audio" => format!("audio sink {}", action.sink),
+        "exec" => format!("exec (irreversible): {}", action.command),
+        other => format!("unknown action: {other}"),
+    }
+}
+
+pub fn revision(dir: &Path) -> Result<String, PackError> {
+    let text = dir.to_string_lossy().to_string();
+    let output = Command::new("git")
+        .args(["-C", &text, "rev-parse", "HEAD"])
+        .output()
+        .map_err(|e| PackError::Revision(e.to_string()))?;
+    if !output.status.success() {
+        return Err(PackError::Revision("not a git checkout".into()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Derive what the pack actually does from its scenes file, not from the
+/// author-declared `permissions` block.
+pub fn review(dir: &Path, manifest: &PackManifest) -> Result<PackReview, PackError> {
+    let scenes_file = manifest.scenes_file();
+    let config = Config::load(&dir.join(&scenes_file))
+        .map_err(|e| PackError::Parse(format!("{scenes_file}: {e}")))?;
+    let mut permissions: Vec<String> = Vec::new();
+    for scene in config.scene.values() {
+        for action in &scene.actions {
+            permissions.push(actual_permission(action));
+        }
+    }
+    permissions.sort();
+    permissions.dedup();
+    let rev = revision(dir).unwrap_or_default();
+    Ok(PackReview {
+        revision: rev,
+        permissions,
+    })
+}
+
+impl PackManifest {
+    pub fn review_summary(&self, review: &PackReview) -> String {
+        let mut out = format!(
+            "Pack: {} {}\n{}\nRevision: {}\nPermissions derived from {}:\n",
+            self.pack.name,
+            self.pack.version,
+            self.pack.description,
+            if review.revision.is_empty() {
+                "local files"
+            } else {
+                &review.revision
+            },
+            self.scenes_file()
+        );
+        if review.permissions.is_empty() {
+            out.push_str("  none\n");
+        } else {
+            for permission in &review.permissions {
+                out.push_str(&format!("  - {permission}\n"));
+            }
+        }
+        out.push_str("Author-declared permissions are informational only; the list above is authoritative.\n");
+        out
+    }
 }
 
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
@@ -160,9 +253,19 @@ pub fn install_pack(
     manifest: &PackManifest,
     config_dir: &Path,
     confirm: bool,
+    expected_revision: Option<&str>,
 ) -> Result<std::path::PathBuf, PackError> {
     if !confirm {
         return Err(PackError::NeedsConfirm);
+    }
+    if let Some(expected) = expected_revision {
+        let actual = revision(dir)?;
+        if actual != expected {
+            return Err(PackError::RevisionMismatch {
+                expected: expected.to_string(),
+                actual,
+            });
+        }
     }
     let scenes_file = manifest.scenes_file();
     let source = dir.join(&scenes_file);
@@ -241,6 +344,43 @@ mod tests {
     }
 
     #[test]
+    fn derives_permissions_from_actions() {
+        let dir = std::env::temp_dir().join(format!("scenes-pack-review-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let scenes = dir.join("scenes.toml");
+        std::fs::write(
+            &scenes,
+            "[scene.focus]\npriority = 50\n\n  [[scene.focus.when]]\n  window_class = [\"code\"]\n\n  [[scene.focus.do]]\nkind = \"omarchy\"\nrun = \"theme set Nord\"\n\n  [[scene.focus.do]]\nkind = \"hypr\"\nkeyword = \"animations:enabled\"\nvalue = \"0\"\n",
+        )
+        .unwrap_or_default();
+        let manifest = PackManifest {
+            pack: PackInfo {
+                name: "x".into(),
+                description: String::new(),
+                version: String::new(),
+                scenes_file: Some("scenes.toml".into()),
+            },
+            permissions: Vec::new(),
+            scenes_file: None,
+        };
+        let review = review(&dir, &manifest).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            review
+                .permissions
+                .iter()
+                .any(|p| p.contains("omarchy theme change"))
+        );
+        assert!(
+            review
+                .permissions
+                .iter()
+                .any(|p| p.contains("animations:enabled"))
+        );
+        let _ = std::fs::remove_file(scenes);
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
     fn refuses_install_without_confirmation() {
         let manifest = PackManifest {
             pack: PackInfo {
@@ -252,7 +392,13 @@ mod tests {
             permissions: Vec::new(),
             scenes_file: None,
         };
-        let result = install_pack(Path::new("/tmp"), &manifest, Path::new("/tmp/nope"), false);
+        let result = install_pack(
+            Path::new("/tmp"),
+            &manifest,
+            Path::new("/tmp/nope"),
+            false,
+            None,
+        );
         assert!(matches!(result, Err(PackError::NeedsConfirm)));
     }
 }

@@ -58,7 +58,8 @@ restricted to a plain `.toml` filename.
 
 The event log is `~/.local/state/omarchy-scenes/events.db`. `scenes why`,
 `scenes stats` and `scenes suggest` read it directly; no daemon request needed.
-Both signal decisions and manual `scenes apply` calls are recorded.
+Both signal decisions and manual `scenes apply` calls are recorded. To delete
+locally recorded window/network names and decisions, run `scenes log clear`.
 
 Hot paths have an ignored benchmark:
 `cargo test --release -p scenes-core --test perf -- --ignored --nocapture`.

@@ -21,19 +21,27 @@ part of that table). A legacy top-level `scenes_file` is still accepted, but
 filename with no path separators or `..`. Manifests are capped at 64 KiB and
 scenes files at 1 MiB.
 
-Inspect a local manifest:
+Inspect a local manifest or a git URL:
 
 ```bash
 scenes pack inspect examples/focus-pack/scene-pack.toml
+scenes pack inspect https://github.com/you/your-scene-pack.git
 ```
+
+The report derives permissions from the pack's **actual** scene actions and
+prints the cloned revision. Author-declared permissions are informational only.
 
 Install from git (always shows the permission summary first, and installs
 nothing without `--confirm`):
 
 ```bash
 scenes pack install https://github.com/you/your-scene-pack
-scenes pack install https://github.com/you/your-scene-pack --confirm
+# prints the revision after review, e.g. abc123...
+scenes pack install https://github.com/you/your-scene-pack --rev abc123... --confirm
 ```
+
+`--confirm` requires the exact revision printed by the review step, so the
+content installed is the content you reviewed. No install happens without it.
 
 `--confirm` copies the pack's scenes file into
 `~/.config/omarchy/scenes/`. It refuses to overwrite an existing file, so

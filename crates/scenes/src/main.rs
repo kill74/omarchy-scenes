@@ -66,8 +66,8 @@ fn usage() {
            resume               Resume auto-switching\n\
            check                Validate scenes.toml without the daemon\n\
            signals              Print the current extended signals\n\
-           pack ...              Inspect/install scene packs (permission summary first)
-           why / stats / suggest  Explain, measure and draft scenes from the event log\n"
+           pack ...              Inspect/install packs (derived permissions, revision-bound)
+           log clear             Delete local decision history\n           why / stats / suggest  Explain, measure and draft scenes from the event log\n"
     );
 }
 
@@ -121,14 +121,37 @@ fn main() {
     if command == "pack" {
         use scenes_core::packs;
         let action = args.get(1).map(String::as_str).unwrap_or("");
+        let show =
+            |dir: &std::path::Path, manifest: &packs::PackManifest| -> Result<String, String> {
+                let review = packs::review(dir, manifest).map_err(|e| e.to_string())?;
+                Ok(manifest.review_summary(&review))
+            };
+
         match action {
             "inspect" => {
-                let Some(path) = args.get(2) else {
-                    eprintln!("usage: scenes pack inspect <scene-pack.toml>");
+                let Some(target) = args.get(2) else {
+                    eprintln!("usage: scenes pack inspect <scene-pack.toml|git-url>");
                     std::process::exit(2);
                 };
-                match packs::PackManifest::load(std::path::Path::new(path)) {
-                    Ok(manifest) => print!("{}", manifest.summary()),
+                let result = if target.contains("://") || target.starts_with("git@") {
+                    packs::fetch(target).map(|(dir, manifest)| {
+                        let text = show(&dir, &manifest);
+                        let _ = std::fs::remove_dir_all(&dir);
+                        text
+                    })
+                } else {
+                    let dir = std::path::Path::new(target)
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new("."));
+                    packs::PackManifest::load(std::path::Path::new(target))
+                        .map(|manifest| show(dir, &manifest))
+                };
+                match result {
+                    Ok(Ok(text)) => print!("{text}"),
+                    Ok(Err(err)) => {
+                        eprintln!("scenes: {err}");
+                        std::process::exit(1);
+                    }
                     Err(err) => {
                         eprintln!("scenes: {err}");
                         std::process::exit(1);
@@ -137,38 +160,67 @@ fn main() {
             }
             "install" => {
                 let Some(url) = args.get(2) else {
-                    eprintln!("usage: scenes pack install <git-url> [--confirm]");
+                    eprintln!("usage: scenes pack install <git-url> [--rev <sha>] [--confirm]");
                     std::process::exit(2);
                 };
-                let confirm = args.iter().any(|a| a == "--confirm");
-                match packs::fetch(url) {
-                    Ok((dir, manifest)) => {
-                        println!("{}", manifest.summary());
-                        if !confirm {
-                            println!("Nothing installed. Re-run with --confirm after reviewing.");
-                        } else {
-                            let config_dir = std::env::var_os("XDG_CONFIG_HOME")
-                                .map(std::path::PathBuf::from)
-                                .unwrap_or_else(|| {
-                                    std::env::var_os("HOME")
-                                        .map(|h| std::path::PathBuf::from(h).join(".config"))
-                                        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-                                })
-                                .join("omarchy/scenes");
-                            match packs::install_pack(&dir, &manifest, &config_dir, confirm) {
-                                Ok(target) => println!("Installed to {}", target.display()),
-                                Err(err) => {
-                                    eprintln!("scenes: {err}");
-                                    std::process::exit(1);
-                                }
-                            }
+                let mut revision: Option<String> = None;
+                let mut confirm = false;
+                let mut i = 3;
+                while i < args.len() {
+                    match args[i].as_str() {
+                        "--confirm" => confirm = true,
+                        "--rev" => {
+                            revision = args.get(i + 1).cloned();
+                            i += 1;
                         }
-                        let _ = std::fs::remove_dir_all(&dir);
+                        other => {
+                            eprintln!("scenes: unknown option '{other}'");
+                            std::process::exit(2);
+                        }
                     }
-                    Err(err) => {
-                        eprintln!("scenes: {err}");
-                        std::process::exit(1);
-                    }
+                    i += 1;
+                }
+                if confirm && revision.is_none() {
+                    eprintln!("scenes: --confirm requires --rev <reviewed-commit-sha>");
+                    std::process::exit(2);
+                }
+                let result = (|| -> Result<(), String> {
+                    let (dir, manifest) = packs::fetch(url).map_err(|e| e.to_string())?;
+                    let outcome = (|| -> Result<(), String> {
+                        let review = packs::review(&dir, &manifest).map_err(|e| e.to_string())?;
+                        print!("{}", manifest.review_summary(&review));
+                        if !confirm {
+                            println!(
+                                "Nothing installed. Re-run with --rev {} --confirm after reviewing.",
+                                review.revision
+                            );
+                            return Ok(());
+                        }
+                        let config_dir = std::env::var_os("XDG_CONFIG_HOME")
+                            .map(std::path::PathBuf::from)
+                            .unwrap_or_else(|| {
+                                std::env::var_os("HOME")
+                                    .map(|h| std::path::PathBuf::from(h).join(".config"))
+                                    .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                            })
+                            .join("omarchy/scenes");
+                        let target = packs::install_pack(
+                            &dir,
+                            &manifest,
+                            &config_dir,
+                            confirm,
+                            revision.as_deref(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                        println!("Installed to {}", target.display());
+                        Ok(())
+                    })();
+                    let _ = std::fs::remove_dir_all(&dir);
+                    outcome
+                })();
+                if let Err(err) = result {
+                    eprintln!("scenes: {err}");
+                    std::process::exit(1);
                 }
             }
             _ => {
@@ -189,6 +241,23 @@ fn main() {
             })
             .join("omarchy-scenes/events.db")
     };
+
+    if command == "log" && args.get(1).map(String::as_str) == Some("clear") {
+        let db = events_db();
+        let mut removed = 0;
+        for suffix in ["", "-wal", "-shm"] {
+            let path = if suffix.is_empty() {
+                db.clone()
+            } else {
+                db.with_extension(format!("db{suffix}"))
+            };
+            if std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+        println!("local decision history cleared ({removed} files removed)");
+        return;
+    }
 
     if command == "why" {
         match SqliteLog::open_readonly(&events_db()).and_then(|log| {

@@ -6,6 +6,19 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-20
+
+### Fixed
+
+- Scene-pack permissions are derived from actual scene actions, and installs are
+  bound to the reviewed git revision with `--rev`.
+- Menu uninstall preserves separators between surviving entries and validates
+  JSONC before writing.
+
+### Added
+
+- `scenes log clear` removes local decision history.
+
 ## [0.1.0] - 2026-11-20
 
 ### Added
