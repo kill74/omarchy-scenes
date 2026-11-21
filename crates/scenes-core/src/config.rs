@@ -39,10 +39,10 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            debounce_ms: 400,
+            debounce_ms: 200,
             manual_override_pause: "30m".to_string(),
             log_events: true,
-            signal_poll_ms: 5000,
+            signal_poll_ms: 1500,
             notify_on_enter: false,
             notify_on_leave: false,
         }

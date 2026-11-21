@@ -146,6 +146,12 @@ impl<R: ActionRunner> SceneManager<R> {
         &self.state
     }
 
+    /// Publish the current state so consumers such as the bar widget can render
+    /// while the daemon is running, even before the first scene transition.
+    pub fn publish_state(&self) -> Result<(), ManagerError> {
+        self.persist()
+    }
+
     pub fn active_scene(&self) -> Option<&str> {
         self.active.as_deref()
     }

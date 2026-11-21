@@ -177,6 +177,9 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    if let Err(err) = shared.lock().await.publish_state() {
+        eprintln!("scenesd: cannot publish initial state: {err}");
+    }
 
     let ipc_task = tokio::spawn(ipc_loop(listener, shared.clone()));
     let hypr_task = tokio::spawn(hypr_loop(shared.clone(), debounce_ms, signal_poll_ms));
@@ -322,8 +325,10 @@ fn collect_signal_changes(ctx: &Context) -> Vec<Signal> {
 async fn hypr_loop(shared: Shared, debounce_ms: u64, signal_poll_ms: u64) -> Result<(), String> {
     let mut ctx = Context::default();
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut poll_ticker =
         tokio::time::interval(std::time::Duration::from_millis(signal_poll_ms.max(1000)));
+    poll_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         let socket = match socket2_path() {
             Some(path) if path.exists() => path,

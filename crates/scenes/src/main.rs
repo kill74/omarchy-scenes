@@ -12,6 +12,41 @@ struct Request {
     seconds: u64,
 }
 
+#[derive(Debug, Serialize)]
+struct PanelData {
+    active_scene: Option<String>,
+    paused_until: Option<u64>,
+    state: String,
+    scenes: Vec<String>,
+    signals: PanelSignals,
+    last_decision: Option<PanelDecision>,
+    stats: Vec<PanelStat>,
+}
+
+#[derive(Debug, Serialize)]
+struct PanelSignals {
+    monitors: Option<usize>,
+    ssid: Option<String>,
+    audio_sink: Option<String>,
+    power: Option<String>,
+    battery: Option<u8>,
+    game_active: bool,
+    focused_cwd: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PanelDecision {
+    when: String,
+    scene: String,
+    detail: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PanelStat {
+    scene: String,
+    seconds: i64,
+}
+
 fn config_path() -> PathBuf {
     std::env::var_os("SCENES_CONFIG")
         .map(PathBuf::from)
@@ -42,6 +77,17 @@ fn ipc_path() -> PathBuf {
         })
 }
 
+fn state_path() -> PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join(".local/state"))
+                .unwrap_or_else(|| PathBuf::from("/tmp"))
+        })
+        .join("omarchy-scenes/state.json")
+}
+
 fn parse_seconds(text: &str) -> u64 {
     let text = text.trim();
     if let Some(value) = text.strip_suffix('m') {
@@ -67,7 +113,8 @@ fn usage() {
            check                Validate scenes.toml without the daemon\n\
            signals              Print the current extended signals\n\
            pack ...              Inspect/install packs (derived permissions, revision-bound)
-           log clear             Delete local decision history\n           why / stats / suggest  Explain, measure and draft scenes from the event log\n"
+           log clear             Delete local decision history\n           why / stats / suggest  Explain, measure and draft scenes from the event log\n\
+           panel                Print a JSON snapshot for the bar widget\n"
     );
 }
 
@@ -323,6 +370,107 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        return;
+    }
+
+    if command == "panel" {
+        use scenes_core::signals::{SignalSource, SystemSignals};
+
+        let saved: Option<serde_json::Value> = std::fs::read_to_string(state_path())
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok());
+        let active_scene = saved
+            .as_ref()
+            .and_then(|v| v.get("active_scene"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|name| !name.is_empty());
+        let paused_until = saved
+            .as_ref()
+            .and_then(|v| v.get("paused_until"))
+            .and_then(|v| v.as_u64())
+            .filter(|until| *until > 0);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default();
+        let state = if paused_until.is_some_and(|until| until > now) {
+            "paused"
+        } else if active_scene.is_some() {
+            "active"
+        } else {
+            "idle"
+        }
+        .to_string();
+
+        let scenes = scenes_core::config::Config::load(&config_path())
+            .map(|config| config.scene.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        // --quick skips the external probes (some can block for seconds on a
+        // cold start) so a bar popup can paint immediately; a full probe can
+        // follow in the background and fill the signal rows in.
+        let quick = args.iter().skip(1).any(|arg| arg == "--quick");
+        let signals = if quick {
+            PanelSignals {
+                monitors: None,
+                ssid: None,
+                audio_sink: None,
+                power: None,
+                battery: None,
+                game_active: false,
+                focused_cwd: None,
+            }
+        } else {
+            let source = SystemSignals;
+            PanelSignals {
+                monitors: source.monitor_count(),
+                ssid: source.wifi_ssid(),
+                audio_sink: source.audio_sink(),
+                power: source.power(),
+                battery: source.battery(),
+                game_active: source.game_active(),
+                focused_cwd: source.focused_cwd(),
+            }
+        };
+
+        let log = SqliteLog::open_readonly(&events_db()).ok();
+        let last_decision = log
+            .as_ref()
+            .and_then(|log| log.last_decision().ok().flatten())
+            .map(|(ts, scene, _signals, detail)| PanelDecision {
+                when: std::process::Command::new("date")
+                    .args(["-d", &format!("@{ts}"), "+%F %T"])
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_else(|| ts.to_string()),
+                scene,
+                detail,
+            });
+        let stats = log
+            .as_ref()
+            .and_then(|log| log.stats().ok())
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|(scene, seconds)| PanelStat { scene, seconds })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        println!(
+            "{}",
+            serde_json::to_string(&PanelData {
+                active_scene,
+                paused_until,
+                state,
+                scenes,
+                signals,
+                last_decision,
+                stats,
+            })
+            .unwrap_or_else(|_| "{}".into())
+        );
         return;
     }
 

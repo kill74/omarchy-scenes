@@ -6,6 +6,24 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Bar widget popup with live signals, last decision and one-click apply, pause,
+  resume, leave and config actions.
+- `scenes panel` prints a JSON snapshot for the widget and other consumers.
+- Live pause countdown in the bar widget.
+
+### Fixed
+
+- The daemon publishes an initial idle state at startup, so the widget renders
+  before the first scene transition.
+- The widget follows atomic state-file updates and expiry of a pause.
+- Faster response: state file polled every second, default debounce 200ms and
+  signal poll 1500ms, and the popup paints a quick local snapshot before the
+  full signal probe.
+- Popup buttons update immediately and then confirm against the daemon with a
+  short poll, instead of waiting for the next ten-second refresh.
+
 ## [0.1.3] - 2026-11-21
 
 ### Fixed

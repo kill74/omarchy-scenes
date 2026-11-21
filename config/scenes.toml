@@ -2,10 +2,10 @@
 # only when that file does not already exist.
 
 [settings]
-debounce_ms = 400
+debounce_ms = 200
 manual_override_pause = "30m"
 log_events = true
-signal_poll_ms = 5000
+signal_poll_ms = 1500
 # Quiet by default; set true if you want a notification on scene enter/leave.
 notify_on_enter = false
 notify_on_leave = false

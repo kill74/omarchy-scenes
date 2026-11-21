@@ -49,6 +49,7 @@ install -Dm755 "$root/hooks/post-update.d/50-scenes-validate" "$update_hook"
 mkdir -p "$status_plugin"
 install -Dm644 "$root/manifest.json" "$status_plugin/manifest.json"
 install -Dm644 "$root/assets/scenes.status/Status.qml" "$status_plugin/assets/scenes.status/Status.qml"
+install -Dm644 "$root/assets/scenes.status/Panel.qml" "$status_plugin/assets/scenes.status/Panel.qml"
 if [[ -f $menu_file ]]; then
 	python3 "$root/scripts/install-menu.py" install "$menu_file" "$root/assets/menu-scenes.jsonc"
 fi
