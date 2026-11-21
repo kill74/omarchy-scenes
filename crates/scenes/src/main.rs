@@ -160,10 +160,13 @@ fn main() {
             }
             "install" => {
                 let Some(url) = args.get(2) else {
-                    eprintln!("usage: scenes pack install <git-url> [--rev <sha>] [--confirm]");
+                    eprintln!(
+                        "usage: scenes pack install <git-url> [--rev <sha> --digest <hash>] [--confirm]"
+                    );
                     std::process::exit(2);
                 };
                 let mut revision: Option<String> = None;
+                let mut digest: Option<String> = None;
                 let mut confirm = false;
                 let mut i = 3;
                 while i < args.len() {
@@ -173,6 +176,10 @@ fn main() {
                             revision = args.get(i + 1).cloned();
                             i += 1;
                         }
+                        "--digest" => {
+                            digest = args.get(i + 1).cloned();
+                            i += 1;
+                        }
                         other => {
                             eprintln!("scenes: unknown option '{other}'");
                             std::process::exit(2);
@@ -180,8 +187,10 @@ fn main() {
                     }
                     i += 1;
                 }
-                if confirm && revision.is_none() {
-                    eprintln!("scenes: --confirm requires --rev <reviewed-commit-sha>");
+                if confirm && (revision.is_none() || digest.is_none()) {
+                    eprintln!(
+                        "scenes: --confirm requires --rev <sha> and --digest <hash> from the review step"
+                    );
                     std::process::exit(2);
                 }
                 let result = (|| -> Result<(), String> {
@@ -191,8 +200,8 @@ fn main() {
                         print!("{}", manifest.review_summary(&review));
                         if !confirm {
                             println!(
-                                "Nothing installed. Re-run with --rev {} --confirm after reviewing.",
-                                review.revision
+                                "Nothing installed. Re-run with --rev {} --digest {} --confirm after reviewing.",
+                                review.revision, review.digest
                             );
                             return Ok(());
                         }
@@ -210,6 +219,7 @@ fn main() {
                             &config_dir,
                             confirm,
                             revision.as_deref(),
+                            digest.as_deref(),
                         )
                         .map_err(|e| e.to_string())?;
                         println!("Installed to {}", target.display());

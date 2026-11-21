@@ -33,7 +33,7 @@ Each GitHub release contains:
 - `scenes` — CLI binary (Linux x86_64)
 - `scenesd` — daemon binary (Linux x86_64)
 
-Container tags: `ghcr.io/kill74/omarchy-scenes:0.1.2` (from tag `v0.1.2`) and `:latest`.
+Container tags: `ghcr.io/kill74/omarchy-scenes:0.1.3` (from tag `v0.1.3`) and `:latest`.
 
 The AUR `PKGBUILD` lives in `packaging/aur/PKGBUILD`; publishing it to the AUR
 requires a separate AUR account and is not done by CI.

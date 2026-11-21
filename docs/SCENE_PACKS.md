@@ -29,19 +29,24 @@ scenes pack inspect https://github.com/you/your-scene-pack.git
 ```
 
 The report derives permissions from the pack's **actual** scene actions and
-prints the cloned revision. Author-declared permissions are informational only.
+prints the cloned revision plus a content digest of both `scene-pack.toml` and
+the selected scenes file. Both files must be regular, git-tracked files inside
+the checkout; symlinks or paths escaping the tree are rejected.
+Author-declared permissions are informational only.
 
 Install from git (always shows the permission summary first, and installs
 nothing without `--confirm`):
 
 ```bash
 scenes pack install https://github.com/you/your-scene-pack
-# prints the revision after review, e.g. abc123...
-scenes pack install https://github.com/you/your-scene-pack --rev abc123... --confirm
+# prints Revision and Digest, e.g. abc123... and def456...:789abc...
+scenes pack install https://github.com/you/your-scene-pack \
+  --rev abc123... --digest def456...:789abc... --confirm
 ```
 
-`--confirm` requires the exact revision printed by the review step, so the
-content installed is the content you reviewed. No install happens without it.
+`--confirm` requires the exact revision **and** digest printed by the review
+step, so both the git tree and the content of the two deciding files match what
+you reviewed. A mismatch is rejected. No install happens without it.
 
 `--confirm` copies the pack's scenes file into
 `~/.config/omarchy/scenes/`. It refuses to overwrite an existing file, so

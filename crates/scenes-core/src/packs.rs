@@ -29,13 +29,16 @@ pub enum PackError {
     RevisionMismatch { expected: String, actual: String },
     #[error("cannot read git revision: {0}")]
     Revision(String),
-    #[error("unsafe scenes file: {0}")]
-    UnsafeScenesFile(String),
+    #[error("unsafe pack file: {0}")]
+    UnsafePackFile(String),
+    #[error("digest mismatch: reviewed {expected}, installing {actual}")]
+    DigestMismatch { expected: String, actual: String },
 }
 
 #[derive(Debug, Clone)]
 pub struct PackReview {
     pub revision: String,
+    pub digest: String,
     pub permissions: Vec<String>,
 }
 
@@ -74,47 +77,66 @@ pub fn revision(dir: &Path) -> Result<String, PackError> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// Resolve the scenes file to a regular file inside the checkout. A symlink or
-/// a path escaping the tree would not be covered by the reviewed git revision.
-fn safe_scenes_path(dir: &Path, manifest: &PackManifest) -> Result<std::path::PathBuf, PackError> {
-    let scenes_file = manifest.scenes_file();
-    let source = dir.join(&scenes_file);
-    let meta = std::fs::symlink_metadata(&source)
-        .map_err(|e| PackError::UnsafeScenesFile(e.to_string()))?;
+/// Resolve a pack file to a regular tracked file inside the checkout. A symlink
+/// or a path escaping the tree would not be covered by the reviewed revision.
+fn safe_pack_file(dir: &Path, name: &str) -> Result<std::path::PathBuf, PackError> {
+    let source = dir.join(name);
+    let meta =
+        std::fs::symlink_metadata(&source).map_err(|e| PackError::UnsafePackFile(e.to_string()))?;
     if meta.file_type().is_symlink() || !meta.is_file() {
-        return Err(PackError::UnsafeScenesFile(format!(
-            "{scenes_file} is not a regular tracked file"
+        return Err(PackError::UnsafePackFile(format!(
+            "{name} is not a regular tracked file"
         )));
     }
-    let root =
-        std::fs::canonicalize(dir).map_err(|e| PackError::UnsafeScenesFile(e.to_string()))?;
+    let root = std::fs::canonicalize(dir).map_err(|e| PackError::UnsafePackFile(e.to_string()))?;
     let resolved =
-        std::fs::canonicalize(&source).map_err(|e| PackError::UnsafeScenesFile(e.to_string()))?;
+        std::fs::canonicalize(&source).map_err(|e| PackError::UnsafePackFile(e.to_string()))?;
     if !resolved.starts_with(&root) {
-        return Err(PackError::UnsafeScenesFile(format!(
-            "{scenes_file} resolves outside the checkout"
+        return Err(PackError::UnsafePackFile(format!(
+            "{name} resolves outside the checkout"
         )));
     }
     if !revision(dir).unwrap_or_default().is_empty() {
         let checkout = dir.to_string_lossy().to_string();
         let tracked = Command::new("git")
-            .args(["-C", &checkout, "ls-files", "--error-unmatch", &scenes_file])
+            .args(["-C", &checkout, "ls-files", "--error-unmatch", name])
             .output()
-            .map_err(|e| PackError::UnsafeScenesFile(e.to_string()))?;
+            .map_err(|e| PackError::UnsafePackFile(e.to_string()))?;
         if !tracked.status.success() {
-            return Err(PackError::UnsafeScenesFile(format!(
-                "{scenes_file} is not tracked by git"
+            return Err(PackError::UnsafePackFile(format!(
+                "{name} is not tracked by git"
             )));
         }
     }
     Ok(source)
 }
 
+/// Content hash of the two files that determine the pack's behaviour.
+fn content_digest(dir: &Path, manifest: &PackManifest) -> Result<String, PackError> {
+    let manifest_path = safe_pack_file(dir, "scene-pack.toml")?;
+    let scenes_path = safe_pack_file(dir, &manifest.scenes_file())?;
+    let a = manifest_path.to_string_lossy().to_string();
+    let b = scenes_path.to_string_lossy().to_string();
+    let output = Command::new("git")
+        .args(["hash-object", &a, &b])
+        .output()
+        .map_err(|e| PackError::Revision(e.to_string()))?;
+    if !output.status.success() {
+        return Err(PackError::Revision("git hash-object failed".into()));
+    }
+    let hashes: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect();
+    Ok(hashes.join(":"))
+}
+
 /// Derive what the pack actually does from its scenes file, not from the
 /// author-declared `permissions` block.
 pub fn review(dir: &Path, manifest: &PackManifest) -> Result<PackReview, PackError> {
     let scenes_file = manifest.scenes_file();
-    let source = safe_scenes_path(dir, manifest)?;
+    let _manifest_file = safe_pack_file(dir, "scene-pack.toml")?;
+    let source = safe_pack_file(dir, &scenes_file)?;
     let config =
         Config::load(&source).map_err(|e| PackError::Parse(format!("{scenes_file}: {e}")))?;
     let mut permissions: Vec<String> = Vec::new();
@@ -126,8 +148,10 @@ pub fn review(dir: &Path, manifest: &PackManifest) -> Result<PackReview, PackErr
     permissions.sort();
     permissions.dedup();
     let rev = revision(dir).unwrap_or_default();
+    let digest = content_digest(dir, manifest)?;
     Ok(PackReview {
         revision: rev,
+        digest,
         permissions,
     })
 }
@@ -135,7 +159,7 @@ pub fn review(dir: &Path, manifest: &PackManifest) -> Result<PackReview, PackErr
 impl PackManifest {
     pub fn review_summary(&self, review: &PackReview) -> String {
         let mut out = format!(
-            "Pack: {} {}\n{}\nRevision: {}\nPermissions derived from {}:\n",
+            "Pack: {} {}\n{}\nRevision: {}\nDigest: {}\nPermissions derived from {}:\n",
             self.pack.name,
             self.pack.version,
             self.pack.description,
@@ -144,6 +168,7 @@ impl PackManifest {
             } else {
                 &review.revision
             },
+            review.digest,
             self.scenes_file()
         );
         if review.permissions.is_empty() {
@@ -235,6 +260,11 @@ impl PackManifest {
         Ok(manifest)
     }
 
+    pub fn load_from_pack(dir: &Path) -> Result<Self, PackError> {
+        let path = safe_pack_file(dir, "scene-pack.toml")?;
+        Self::load(&path)
+    }
+
     pub fn summary(&self) -> String {
         let mut out = format!(
             "Pack: {} {}\n{}\nPermissions:\n",
@@ -275,7 +305,7 @@ pub fn fetch(url: &str) -> Result<(std::path::PathBuf, PackManifest), PackError>
         if !status.success() {
             return Err(PackError::Git(format!("exit status {status}")));
         }
-        PackManifest::load(&dir.join("scene-pack.toml"))
+        PackManifest::load_from_pack(&dir)
     })();
     match result {
         Ok(manifest) => Ok((dir, manifest)),
@@ -293,6 +323,7 @@ pub fn install_pack(
     config_dir: &Path,
     confirm: bool,
     expected_revision: Option<&str>,
+    expected_digest: Option<&str>,
 ) -> Result<std::path::PathBuf, PackError> {
     if !confirm {
         return Err(PackError::NeedsConfirm);
@@ -307,7 +338,17 @@ pub fn install_pack(
         }
     }
     let scenes_file = manifest.scenes_file();
-    let source = safe_scenes_path(dir, manifest)?;
+    let _manifest_file = safe_pack_file(dir, "scene-pack.toml")?;
+    let source = safe_pack_file(dir, &scenes_file)?;
+    if let Some(expected) = expected_digest {
+        let actual = content_digest(dir, manifest)?;
+        if actual != expected {
+            return Err(PackError::DigestMismatch {
+                expected: expected.to_string(),
+                actual,
+            });
+        }
+    }
     let size = std::fs::metadata(&source)
         .map(|m| m.len())
         .map_err(|e| PackError::Copy(e.to_string()))?;
@@ -388,6 +429,11 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let scenes = dir.join("scenes.toml");
         std::fs::write(
+            dir.join("scene-pack.toml"),
+            "[pack]\nname = \"x\"\nversion = \"1\"\ndescription = \"\"\nscenes_file = \"scenes.toml\"\n",
+        )
+        .unwrap_or_default();
+        std::fs::write(
             &scenes,
             "[scene.focus]\npriority = 50\n\n  [[scene.focus.when]]\n  window_class = [\"code\"]\n\n  [[scene.focus.do]]\nkind = \"omarchy\"\nrun = \"theme set Nord\"\n\n  [[scene.focus.do]]\nkind = \"hypr\"\nkeyword = \"animations:enabled\"\nvalue = \"0\"\n",
         )
@@ -428,6 +474,11 @@ mod tests {
             std::env::temp_dir().join(format!("scenes-pack-outside-{}.toml", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         std::fs::write(&outside, "[scene.x]\npriority = 1\n").unwrap_or_default();
+        std::fs::write(
+            dir.join("scene-pack.toml"),
+            "[pack]\nname = \"x\"\nversion = \"1\"\ndescription = \"\"\nscenes_file = \"scenes.toml\"\n",
+        )
+        .unwrap_or_default();
         let linked = dir.join("scenes.toml");
         let _ = std::fs::remove_file(&linked);
         symlink(&outside, &linked).unwrap_or_default();
@@ -444,7 +495,7 @@ mod tests {
         };
         assert!(matches!(
             review(&dir, &manifest),
-            Err(PackError::UnsafeScenesFile(_))
+            Err(PackError::UnsafePackFile(_))
         ));
         assert!(matches!(
             install_pack(
@@ -452,12 +503,69 @@ mod tests {
                 &manifest,
                 std::path::Path::new("/tmp/nope"),
                 true,
+                None,
                 None
             ),
-            Err(PackError::UnsafeScenesFile(_))
+            Err(PackError::UnsafePackFile(_))
         ));
         let _ = std::fs::remove_file(linked);
         let _ = std::fs::remove_file(outside);
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn rejects_symlinked_manifest() {
+        use std::os::unix::fs::symlink;
+
+        let dir = std::env::temp_dir().join(format!("scenes-pack-manifest-{}", std::process::id()));
+        let outside = std::env::temp_dir().join(format!(
+            "scenes-pack-manifest-out-{}.toml",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(
+            &outside,
+            "[pack]\nname = \"x\"\nversion = \"1\"\ndescription = \"\"\nscenes_file = \"scenes.toml\"\n",
+        )
+        .unwrap_or_default();
+        let linked = dir.join("scene-pack.toml");
+        let _ = std::fs::remove_file(&linked);
+        symlink(&outside, &linked).unwrap_or_default();
+        assert!(matches!(
+            PackManifest::load_from_pack(&dir),
+            Err(PackError::UnsafePackFile(_))
+        ));
+        let _ = std::fs::remove_file(linked);
+        let _ = std::fs::remove_file(outside);
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn rejects_digest_mismatch() {
+        let dir = std::env::temp_dir().join(format!("scenes-pack-digest-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(
+            dir.join("scene-pack.toml"),
+            "[pack]\nname = \"x\"\nversion = \"1\"\ndescription = \"\"\nscenes_file = \"scenes.toml\"\n",
+        )
+        .unwrap_or_default();
+        std::fs::write(
+            dir.join("scenes.toml"),
+            "[scene.x]\npriority = 1\n\n  [[scene.x.when]]\n  window_class = [\"code\"]\n\n  [[scene.x.do]]\nkind = \"omarchy\"\nrun = \"theme set Nord\"\n",
+        )
+        .unwrap_or_default();
+        let manifest = PackManifest::load_from_pack(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let result = install_pack(
+            &dir,
+            &manifest,
+            std::path::Path::new("/tmp/nope-digest"),
+            true,
+            None,
+            Some("bad-digest"),
+        );
+        assert!(matches!(result, Err(PackError::DigestMismatch { .. })));
+        let _ = std::fs::remove_file(dir.join("scene-pack.toml"));
+        let _ = std::fs::remove_file(dir.join("scenes.toml"));
         let _ = std::fs::remove_dir(dir);
     }
 
@@ -478,6 +586,7 @@ mod tests {
             &manifest,
             Path::new("/tmp/nope"),
             false,
+            None,
             None,
         );
         assert!(matches!(result, Err(PackError::NeedsConfirm)));

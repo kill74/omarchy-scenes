@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-21
+
+### Fixed
+
+- Scene packs require `scene-pack.toml` and the scenes file to be regular
+  tracked files inside the checkout, and confirmation is bound to a content
+  digest of both files.
+
 ## [0.1.2] - 2026-11-20
 
 ### Fixed
